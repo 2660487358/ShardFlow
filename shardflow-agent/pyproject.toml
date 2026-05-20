@@ -1,0 +1,56 @@
+[project]
+name = "knowledgebridge-agent"
+version = "0.1.0"
+description = "KnowledgeBridge Python inference layer (FastAPI) - core reasoning engine"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.136.1",
+    "uvicorn[standard]>=0.34.0",
+    "langgraph>=0.4.0",
+    "httpx>=0.28.0",
+    "redis[hiredis]>=5.2.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.8.0",
+    "sse-starlette>=2.2.0",
+    "numpy>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.3.0",
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+    "pytest-httpx",
+    "fakeredis>=2.20.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.black]
+line-length = 120
+
+[tool.mypy]
+strict = true
+exclude = ["tests/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
