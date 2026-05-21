@@ -16,7 +16,7 @@ class CallbackClient:
                 base_url=self._base_url,
                 timeout=httpx.Timeout(30.0),
                 headers={
-                    "X-API-Key": settings.llm_api_key,
+                    "X-API-Key": settings.java_api_key or settings.llm_api_key,
                     "Content-Type": "application/json",
                 },
             )
@@ -59,6 +59,23 @@ class CallbackClient:
             return None
         resp.raise_for_status()
         return dict(resp.json())
+
+    async def search_strategies(self, task_type: str, query: str,
+                                embedding: list[float] | None = None,
+                                limit: int = 5) -> list[dict[str, Any]]:
+        """Proxy semantic search through Java kb-strategy pgvector API."""
+        client = await self._get_client()
+        body: dict[str, Any] = {
+            "task_type": task_type,
+            "query": query,
+            "limit": limit,
+        }
+        if embedding:
+            body["embedding"] = embedding
+        resp = await client.post("/api/v1/strategies/search", json=body)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("results", data) if isinstance(data, dict) else data
 
     async def close(self) -> None:
         if self._client:

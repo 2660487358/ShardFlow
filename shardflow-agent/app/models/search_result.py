@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SearchResult(BaseModel):
@@ -11,7 +11,7 @@ class SearchResult(BaseModel):
     url: str
     relevance_score: float = 0.0
     metadata: dict[str, Any] = {}
-    retrieved_at: datetime = datetime.now(timezone.utc)
+    retrieved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ToolMetadata(BaseModel):

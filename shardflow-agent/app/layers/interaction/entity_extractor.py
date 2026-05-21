@@ -37,6 +37,8 @@ class EntityExtractor:
         entities["service"] = self._extract_services(user_input)
         entities["file_path"] = self._extract_file_paths(user_input)
         entities["version"] = self._extract_versions(user_input)
+        entities["project"] = self._extract_projects(user_input)
+        entities["module"] = self._extract_modules(user_input)
 
         return entities
 
@@ -62,6 +64,22 @@ class EntityExtractor:
 
     async def extract_async(self, user_input: str) -> dict[str, Any]:
         return self.extract(user_input)
+
+    PROJECT_PATTERN: re.Pattern[str] = re.compile(
+        r"\b([A-Z][a-zA-Z]*(?:-[A-Z][a-zA-Z]*)*(?:App|Service|Project|Module|System|Platform|Engine|Hub|Flow|Bridge|Agent|Portal|Center))\b"
+    )
+
+    MODULE_PATTERN: re.Pattern[str] = re.compile(
+        r"\b([a-z][a-z0-9_]*\.(?:api|service|controller|repository|manager|handler|config|util|model|dto|vo|dao|mapper|common|core|infra|domain|gateway|client)s?)\b"
+    )
+
+    def _extract_projects(self, text: str) -> list[str]:
+        matches = self.PROJECT_PATTERN.findall(text)
+        return list(dict.fromkeys(matches))
+
+    def _extract_modules(self, text: str) -> list[str]:
+        matches = self.MODULE_PATTERN.findall(text)
+        return list(dict.fromkeys(matches))
 
 
 entity_extractor = EntityExtractor()

@@ -10,6 +10,7 @@ SSE_EVENT_TYPES = {
     "observe": "observe",
     "shard_trigger": "shard_trigger",
     "shard_result": "shard_result",
+    "shard_resume": "shard_resume",
     "strategy": "strategy",
     "progress": "progress",
     "done": "done",

@@ -5,12 +5,16 @@ from app.layers.agent_core.context_manager import context_manager
 
 class ShardDecisionGate:
     def should_shard(self, state: dict[str, Any]) -> bool:
+        """Unified shard decision: ContextManager threshold + pending items check.
+
+        Consistent with ContextManager.should_shard(): checks context_usage >= 0.80.
+        Additionally ensures there are pending items worth extracting.
+        """
         usage = state.get("context_usage_ratio", 0)
-        if usage >= 0.80:
-            pending = state.get("pending", [])
-            if pending and len(pending) > 0:
-                return True
-        return False
+        if usage < 0.80:
+            return False
+        pending = state.get("pending", [])
+        return bool(pending and len(pending) > 0)
 
     def token_budget(self, state: dict[str, Any]) -> int:
         current: int = state.get("token_count", 0)

@@ -1,7 +1,7 @@
 ﻿"""Conversation endpoint with SSE streaming support."""
 from typing import Any
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -32,9 +32,9 @@ async def handle_conversation(
 ) -> Any:
     tenant_id = x_tenant_id or request.tenant_id
     if not tenant_id:
-        return {"error": "tenant_id is required"}, 400
+        raise HTTPException(status_code=400, detail="tenant_id is required")
     if not request.message or len(request.message) > 10000:
-        return {"error": "message must be non-empty and <= 10000 chars"}, 400
+        raise HTTPException(status_code=400, detail="message must be non-empty and <= 10000 chars")
 
     session_id = x_session_id or request.session_id
     session = await session_manager.get_session(tenant_id, session_id) if session_id else None
@@ -85,5 +85,5 @@ async def handle_conversation(
 async def get_conversation(session_id: str, x_tenant_id: str = Header(default="")) -> dict[str, Any]:
     session = await session_manager.get_session(x_tenant_id, session_id)
     if session is None:
-        return {"error": "session not found"}, 404  # type: ignore[return-value]
+        raise HTTPException(status_code=404, detail="session not found")
     return session

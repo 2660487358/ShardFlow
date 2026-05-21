@@ -48,7 +48,17 @@ class AuditLogger:
         try:
             self._buffer.put_nowait(event)
         except asyncio.QueueFull:
-            pass
+            # Degradation: write to Redis dead-letter queue instead of silently dropping
+            try:
+                from app.infrastructure.redis_client import redis_client
+                import json
+                r = await redis_client.get_redis()
+                await r.rpush(
+                    f"kb:audit:dead_letter:{tenant_id}",
+                    json.dumps(event.model_dump(), ensure_ascii=False),
+                )
+            except Exception:
+                pass  # Last resort: nothing else we can do
 
     async def start_background_flush(self) -> None:
         self._running = True

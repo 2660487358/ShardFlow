@@ -1,4 +1,7 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
+
+# Security: create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
 
@@ -10,6 +13,12 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e ".[dev]"
 
 COPY . .
+
+# Security: switch to non-root user
+RUN chown -R appuser:appuser /app
+USER appuser
+
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 

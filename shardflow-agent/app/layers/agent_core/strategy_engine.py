@@ -1,7 +1,12 @@
+"""Strategy Engine: semantic retrieval, scoring, reuse decisions.
+
+Phase 2 update: search_strategy now proxies through Java kb-strategy service
+for pgvector semantic search. Local cache serves as fallback.
+"""
 from typing import Any
 
 from app.infrastructure.callback_client import callback_client
-from app.models.strategy import StrategyRecord
+from app.models.strategy import SourceCombo, StrategyRecord
 
 
 class ReuseDecision:
@@ -52,14 +57,41 @@ DEFAULT_STRATEGIES: dict[str, dict[str, Any]] = {
 
 
 class StrategyEngine:
+    """Strategy semantic retrieval and reuse engine.
+
+    Search path: Java kb-strategy pgvector API → local cache fallback.
+    """
+
     def __init__(self) -> None:
-        self._records: list[StrategyRecord] = []
+        self._local_cache: list[StrategyRecord] = []
 
     async def search_strategy(self, task_type: str, query_pattern: str,
                               query_embedding: list[float] | None = None,
                               limit: int = 5) -> list[tuple[StrategyRecord, float]]:
+        """Search strategies via Java proxy (pgvector), fall back to local cache."""
+        # Try Java kb-strategy API first
+        try:
+            proxy_results = await callback_client.search_strategies(
+                task_type=task_type,
+                query=query_pattern,
+                embedding=query_embedding,
+                limit=limit,
+            )
+            if proxy_results:
+                records: list[tuple[StrategyRecord, float]] = []
+                for item in proxy_results:
+                    record = StrategyRecord(**item.get("record", item))
+                    score = float(item.get("similarity", 0.5))
+                    records.append((record, score))
+                records.sort(key=lambda x: x[1], reverse=True)
+                if records:
+                    return records[:limit]
+        except Exception:
+            pass  # Fall through to local cache
+
+        # Local cache fallback (also used when Java service unavailable)
         results: list[tuple[StrategyRecord, float]] = []
-        for record in self._records:
+        for record in self._local_cache:
             if record.task_type == task_type:
                 sim = 0.95
                 results.append((record, sim))
@@ -103,8 +135,12 @@ class StrategyEngine:
         return DEFAULT_STRATEGIES.get(task_type, DEFAULT_STRATEGIES["general_code_exploration"])
 
     async def save_strategy(self, record: StrategyRecord) -> str:
-        self._records.append(record)
-        await callback_client.save_strategy(record.model_dump())
+        """Save strategy to local cache and Java kb-strategy service."""
+        self._local_cache.append(record)
+        try:
+            await callback_client.save_strategy(record.model_dump())
+        except Exception:
+            pass  # Local cache persists even if Java unavailable
         return record.strategy_id
 
     def _cosine_similarity(self, a: list[float], b: list[float]) -> float:

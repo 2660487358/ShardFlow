@@ -27,6 +27,19 @@ class InputGuard:
         r"\bcompile\s*\(", r"rm\s+-rf", r"DROP\s+TABLE",
     ]
 
+    SQL_INJECTION_PATTERNS: list[str] = [
+        r"(\bSELECT\b.*\bFROM\b|\bINSERT\b.*\bINTO\b|\bUPDATE\b.*\bSET\b|\bDELETE\b.*\bFROM\b)",
+        r"\bUNION\b.*\bSELECT\b", r"--\s*$", r"/\*.*\*/", r"';.*--",
+        r"\bOR\b\s+['\"]?\d+['\"]?\s*=\s*['\"]?\d+['\"]?",
+    ]
+
+    XSS_PATTERNS: list[str] = [
+        r"<script[^>]*>.*?</script>",
+        r"javascript\s*:", r"on\w+\s*=\s*\".*?\"",
+        r"<iframe[^>]*>", r"<img[^>]*onerror",
+        r"<svg[^>]*onload",
+    ]
+
     SENSITIVE_WORDS: set[str] = {
         "暴力", "色情", "赌博", "毒品", "武器制造",
         "violence", "porn", "gambling", "drugs",
@@ -49,6 +62,14 @@ class InputGuard:
         code_reasons = self._detect_code_injection(sanitized)
         if code_reasons:
             return InspectionResult(False, "MEDIUM", code_reasons)
+
+        sql_reasons = self._detect_sql_injection(sanitized)
+        if sql_reasons:
+            return InspectionResult(False, "MEDIUM", sql_reasons)
+
+        xss_reasons = self._detect_xss(sanitized)
+        if xss_reasons:
+            return InspectionResult(False, "MEDIUM", xss_reasons)
 
         sensitive = self._detect_sensitive(sanitized)
         if sensitive:
@@ -91,6 +112,20 @@ class InputGuard:
             if word.lower() in lower:
                 found.append(word)
         return found
+
+    def _detect_sql_injection(self, input_text: str) -> list[str]:
+        reasons: list[str] = []
+        for pattern in self.SQL_INJECTION_PATTERNS:
+            if re.search(pattern, input_text, re.IGNORECASE):
+                reasons.append(f"SQL injection pattern: {pattern}")
+        return reasons
+
+    def _detect_xss(self, input_text: str) -> list[str]:
+        reasons: list[str] = []
+        for pattern in self.XSS_PATTERNS:
+            if re.search(pattern, input_text, re.IGNORECASE | re.DOTALL):
+                reasons.append(f"XSS pattern: {pattern}")
+        return reasons
 
     def sanitize(self, input_text: str) -> str:
         text = input_text.replace("\x00", "")

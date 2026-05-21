@@ -76,10 +76,10 @@ class PromptEngine:
         })
 
     def build_observe_prompt(self, state: dict[str, Any]) -> str:
-        action_plan = state.get("action_plan", {})
+        action_plan = state.get("action_plan") or {}
         tool_name = action_plan.get("tool", "unknown")
         tool_params = action_plan.get("params", {})
-        execution_result = state.get("observation", "无结果")
+        execution_result = state.get("observation") or "无结果"
 
         template = self.load_template("system_observe")
         return self.assemble_prompt(template, {

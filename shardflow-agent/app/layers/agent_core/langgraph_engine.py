@@ -25,6 +25,26 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
     from app.layers.agent_core.prompt_engine import prompt_engine
     from app.layers.reasoning.error_handler import error_handler
 
+    # Read context shard info through MemoryOrchestrator (new path)
+    # Falls back to state["context_shard_info"] if orchestrator unavailable
+    if not state.get("context_shard_info"):
+        try:
+            from app.layers.agent_core.memory_orchestrator import memory_orchestrator
+            from app.models.memory import MemoryType
+            task_id = state.get("task_id", "")
+            tenant_id = state.get("tenant_id", "")
+            record = await memory_orchestrator.read(tenant_id, MemoryType.LONG_TERM, task_id)
+            if record and record.data:
+                from app.layers.agent_core.context_shard import context_shard_manager
+                try:
+                    from app.models.context_shard import ContextShard
+                    shard = ContextShard(**record.data)
+                    state["context_shard_info"] = context_shard_manager.inject_shard(shard, state)
+                except Exception:
+                    state["context_shard_info"] = "无（首次探索）"
+        except Exception:
+            pass
+
     prompt = prompt_engine.build_think_prompt(state)
     try:
         model = llm_router.select_model("think")
@@ -37,16 +57,57 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
 
 
 async def node_tool_execute(state: dict[str, Any]) -> dict[str, Any]:
-    action_plan = state.get("action_plan", {})
+    from app.layers.tool.http_executor import http_executor
+    from app.layers.tool.result_parser import result_parser
+    from app.layers.tool.tool_registry import tool_registry
+
+    action_plan = state.get("action_plan") or {}
     if not action_plan:
-        state["observation"] = "no tool to execute (stub: tool registry not yet integrated)"
+        state["observation"] = "no tool to execute"
         return state
-    tool_name = action_plan.get("tool", "unknown")
-    state["observation"] = f"[Stub] Tool {tool_name} executed (Task 5 integration pending)"
+
+    tool_name = action_plan.get("tool", "")
+    tool_params = action_plan.get("params", {})
+    source_type = action_plan.get("source_type", "unknown")
+
+    try:
+        tool_meta = tool_registry.get(tool_name)
+    except KeyError:
+        state["observation"] = f"Tool not found: {tool_name}"
+        return state
+
+    url = tool_params.pop("url", "")
+    result = await http_executor.execute_with_retry(tool_name, tool_params, url=url)
+
+    if result.success and result.data:
+        parsed = result_parser.parse(result.data if isinstance(result.data, dict) else {"raw": str(result.data)}, source_type)
+        state["tool_result"] = parsed.model_dump()
+        state["observation"] = parsed.snippet or f"Tool {tool_name} executed successfully"
+    else:
+        state["tool_result"] = None
+        state["observation"] = result.error or f"Tool {tool_name} failed"
+
     return state
 
 
 async def node_observe(state: dict[str, Any]) -> dict[str, Any]:
+    from app.layers.agent_core.llm_router import llm_router
+    from app.layers.agent_core.prompt_engine import prompt_engine
+    from app.layers.reasoning.decision_reasoning import confidence_scorer
+
+    prompt = prompt_engine.build_observe_prompt(state)
+    try:
+        model = llm_router.select_model("observe")
+        response = await llm_router.call_with_retry(prompt, model)
+        content = await llm_router.extract_content(response)
+        state["observation"] = content
+    except Exception:
+        state["observation"] = state.get("observation") or "Observation failed"
+
+    tool_result = state.get("tool_result")
+    if tool_result:
+        confidence_scorer.score_individual_fact(tool_result if isinstance(tool_result, dict) else {"fact": str(tool_result)})
+
     return state
 
 
@@ -71,12 +132,82 @@ async def node_check_state(state: dict[str, Any]) -> dict[str, Any]:
 
 
 async def node_shard_extract(state: dict[str, Any]) -> dict[str, Any]:
-    state["observation"] = "[Stub] shard extraction triggered (Task 4 integration pending)"
+    from app.layers.agent_core.context_shard import context_shard_manager
+    from app.layers.agent_core.memory_orchestrator import memory_orchestrator
+    from app.models.memory import MemoryType
+
+    shard = await context_shard_manager.extract_shard(state)
+    if shard is not None:
+        shard_dict = shard.model_dump()
+        state["current_shard"] = shard_dict
+        state["shard_saved"] = True
+        state["context_shard_info"] = context_shard_manager.inject_shard(shard, state)
+
+        # Write through MemoryOrchestrator (new unified path)
+        tenant_id = state.get("tenant_id", "")
+        task_id = state.get("task_id", "")
+        try:
+            await memory_orchestrator.write_shard(tenant_id, task_id, shard_dict)
+        except Exception:
+            # Fallback: direct callback
+            try:
+                from app.infrastructure.callback_client import callback_client
+                await callback_client.save_shard(shard_dict)
+            except Exception:
+                pass
+    else:
+        state["shard_saved"] = False
+        state["observation"] = "Shard extraction skipped (context usage below threshold)"
+
     return state
 
 
 async def node_strategy_save(state: dict[str, Any]) -> dict[str, Any]:
-    state["observation"] = "[Stub] strategy save triggered (Task 7 integration pending)"
+    from app.layers.agent_core.strategy_engine import strategy_engine
+    from app.layers.agent_core.memory_orchestrator import memory_orchestrator
+    from app.models.memory import MemoryType
+    from app.models.strategy import SourceCombo, StrategyRecord
+
+    intent = state.get("intent", "general_code_exploration")
+    final_answer = state.get("final_answer", "")
+    loop_count = state.get("loop_count", 0)
+    tenant_id = state.get("tenant_id", "")
+    task_id = state.get("task_id", "")
+
+    strategy_saved = False
+    try:
+        default_strategy = strategy_engine.get_default_strategy(intent)
+        sources = default_strategy.get("sources", ["code_comments"])
+        weights = default_strategy.get("weights", {})
+
+        record = StrategyRecord(
+            strategy_id=f"strategy-{task_id}-{loop_count}",
+            tenant_id=tenant_id,
+            task_type=intent,
+            query_pattern=final_answer[:200] if final_answer else "",
+            source_combo=[
+                SourceCombo(source=s, weight=weights.get(s, 0.5), reliability=0.7)
+                for s in sources
+            ],
+            success_score=0.5,
+            cost_ms=loop_count * 2000,
+        )
+
+        # Write through MemoryOrchestrator (new unified path)
+        try:
+            await memory_orchestrator.write_strategy(
+                tenant_id, record.strategy_id, record.model_dump(),
+            )
+            strategy_saved = True
+        except Exception:
+            # Fallback: direct strategy_engine save
+            await strategy_engine.save_strategy(record)
+            strategy_saved = True
+    except Exception:
+        strategy_saved = False
+
+    state["strategy_saved"] = strategy_saved
+    state["is_done"] = True
     return state
 
 

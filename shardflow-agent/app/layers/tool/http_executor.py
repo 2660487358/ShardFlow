@@ -21,11 +21,19 @@ class HttpExecutor:
             self._client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         return self._client
 
-    async def execute(self, tool_name: str, params: dict[str, Any], url: str = "") -> ToolResult:
+    async def execute(self, tool_name: str, params: dict[str, Any], url: str = "",
+                      method: str = "GET", body: dict[str, Any] | None = None) -> ToolResult:
         client = await self._get_client()
         try:
             if url:
-                resp = await client.get(url, params=params)
+                if method.upper() == "POST":
+                    resp = await client.post(url, json=body or params)
+                elif method.upper() == "PUT":
+                    resp = await client.put(url, json=body or params)
+                elif method.upper() == "DELETE":
+                    resp = await client.delete(url)
+                else:
+                    resp = await client.get(url, params=params)
                 resp.raise_for_status()
                 return ToolResult(tool_name, True, resp.json())
             return ToolResult(tool_name, True, {"stub": f"Tool {tool_name} executed (no URL configured)"})
@@ -41,10 +49,11 @@ class HttpExecutor:
         ]
 
     async def execute_with_retry(self, tool_name: str, params: dict[str, Any],
-                                 url: str = "", retries: int = 3) -> ToolResult:
+                                 url: str = "", retries: int = 3,
+                                 method: str = "GET", body: dict[str, Any] | None = None) -> ToolResult:
         last_result: ToolResult | None = None
         for attempt in range(retries + 1):
-            result = await self.execute(tool_name, params, url)
+            result = await self.execute(tool_name, params, url, method, body)
             if result.success:
                 return result
             last_result = result
