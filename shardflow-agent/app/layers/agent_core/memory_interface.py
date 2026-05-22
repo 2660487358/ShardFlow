@@ -19,16 +19,16 @@ class MemoryStore(Protocol):
     Upper-layer code interacts ONLY through this interface, never with concrete adapters.
     """
 
-    async def read(self, tenant_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
+    async def read(self, user_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
         """Read a single memory record by key.
 
         Returns None if the key does not exist or has expired.
-        Must be tenant-isolated: tenant_id is always provided and MUST be used
-        to scope the read (adapter prefixes keys with tenant_id).
+        Must be user-isolated: user_id is always provided and MUST be used
+        to scope the read (adapter prefixes keys with user_id).
         """
         ...
 
-    async def write(self, tenant_id: str, memory_type: MemoryType, key: str,
+    async def write(self, user_id: str, memory_type: MemoryType, key: str,
                     data: dict[str, Any], ttl_seconds: int = 0) -> MemoryRecord:
         """Write (create or update) a memory record.
 
@@ -38,11 +38,11 @@ class MemoryStore(Protocol):
         """
         ...
 
-    async def delete(self, tenant_id: str, memory_type: MemoryType, key: str) -> bool:
+    async def delete(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
         """Delete a memory record. Returns True if deleted, False if not found."""
         ...
 
-    async def search(self, tenant_id: str, memory_type: MemoryType,
+    async def search(self, user_id: str, memory_type: MemoryType,
                      query: MemoryQuery) -> list[MemoryRecord]:
         """Search memory records matching query filters.
 
@@ -50,7 +50,7 @@ class MemoryStore(Protocol):
         """
         ...
 
-    async def exists(self, tenant_id: str, memory_type: MemoryType, key: str) -> bool:
+    async def exists(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
         """Check if a memory record exists (without retrieving full data)."""
         ...
 

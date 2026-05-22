@@ -26,7 +26,7 @@ public class ShardService {
 
     private Map<String, Object> toMap(ShardEntity e) {
         return Map.of(
-            "id", e.getId(), "task_id", e.getTaskId(), "tenant_id", e.getTenantId(),
+            "id", e.getId(), "task_id", e.getTaskId(), "user_id", e.getUserId(),
             "session_seq", e.getSessionSeq(), "confirmed", e.getConfirmed(),
             "excluded", e.getExcluded(), "pending", e.getPending(),
             "exploration_depth", Objects.toString(e.getExplorationDepth(), ""),

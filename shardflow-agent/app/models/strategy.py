@@ -9,7 +9,7 @@ class SourceCombo(BaseModel):
 
 class StrategyRecord(BaseModel):
     strategy_id: str
-    tenant_id: str
+    user_id: str
     task_type: str
     query_pattern: str
     source_combo: list[SourceCombo]

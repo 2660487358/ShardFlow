@@ -13,7 +13,7 @@ def _mock_llm_response(content: str) -> dict:
 async def test_node_shard_extract_uses_memory_orchestrator():
     """Verify node_shard_extract calls memory_orchestrator.write_shard."""
     state = create_initial_state(
-        task_id="mem-test-001", tenant_id="test-tenant",
+        task_id="mem-test-001", user_id="test-user",
         session_id="test-session", user_input="trace Dubbo",
         max_rounds=2,
     )

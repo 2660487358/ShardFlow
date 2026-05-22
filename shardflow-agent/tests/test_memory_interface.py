@@ -50,7 +50,7 @@ class TestMemoryModels:
 
     def test_memory_record_creation(self):
         record = MemoryRecord(
-            key="test-key", tenant_id="t1",
+            key="test-key", user_id="u1",
             memory_type=MemoryType.LONG_TERM,
             data={"fact": "test"},
         )

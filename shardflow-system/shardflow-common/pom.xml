@@ -10,9 +10,9 @@
         <version>0.1.0</version>
     </parent>
 
-    <artifactId>kb-common</artifactId>
-    <name>KB Common</name>
-    <description>Shared entities, DTOs, exceptions, and Redis configuration</description>
+    <artifactId>shardflow-common</artifactId>
+    <name>ShardFlow Common</name>
+    <description>Shared entities, DTOs, exceptions, and Redis configuration for ShardFlow</description>
 
     <dependencies>
         <dependency>

@@ -30,7 +30,7 @@ async def test_callback_save_shard_integration():
 
     shard_data = {
         "task_id": "test-task-001",
-        "tenant_id": "test-tenant",
+        "user_id": "test-user",
         "session_seq": 1,
         "confirmed": [], "excluded": [], "pending": [],
     }
@@ -80,7 +80,7 @@ async def test_callback_graceful_degradation():
 
     strategy_engine._local_cache = [
         StrategyRecord(
-            strategy_id="local-1", tenant_id="test", task_type="code_exploration",
+            strategy_id="local-1", user_id="test", task_type="code_exploration",
             query_pattern="trace dubbo",
             source_combo=[SourceCombo(source="code_comments", weight=0.5, reliability=0.7)],
             success_score=0.8, cost_ms=2000,

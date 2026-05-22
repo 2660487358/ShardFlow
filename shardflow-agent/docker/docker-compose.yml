@@ -35,11 +35,11 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: knowledgebridge
-      POSTGRES_PASSWORD: knowledgebridge
-      POSTGRES_DB: knowledgebridge
+      POSTGRES_USER: shardflow
+      POSTGRES_PASSWORD: shardflow
+      POSTGRES_DB: shardflow
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U knowledgebridge"]
+      test: ["CMD-SHELL", "pg_isready -U shardflow"]
       interval: 5s
       timeout: 3s
       retries: 5

@@ -13,7 +13,10 @@
       "Bash(python -m pytest tests/test_core.py tests/test_health.py tests/test_l1_interaction.py -v -k \"not SessionManager\")",
       "Bash(python -m pytest tests/ -v -k \"not SessionManager\")",
       "Bash(python -m pytest tests/ -v --no-header)",
-      "Bash(python -m pytest tests/test_e2e.py tests/test_java_integration.py -v --no-header)"
+      "Bash(python -m pytest tests/test_e2e.py tests/test_java_integration.py -v --no-header)",
+      "Bash(python -c ' *)",
+      "Skill(using-superpowers)",
+      "Skill(using-superpowers:*)"
     ]
   }
 }

@@ -22,7 +22,7 @@ class TestPromptEngine:
         assert result == "Hello World"
 
     def test_build_think_prompt(self):
-        state = create_initial_state("t1", "tenant1", "sess1", "理清 Dubbo 注册链路")
+        state = create_initial_state("u1", "user1", "sess1", "理清 Dubbo 注册链路")
         result = prompt_engine.build_think_prompt(state)
         assert "理清 Dubbo 注册链路" in result
         assert "已知上下文" in result
@@ -137,9 +137,9 @@ class TestLLMRouter:
 
 class TestCreateInitialState:
     def test_creates_state_with_defaults(self):
-        state = create_initial_state("t1", "tenant1", "sess1", "test input")
-        assert state["task_id"] == "t1"
-        assert state["tenant_id"] == "tenant1"
+        state = create_initial_state("u1", "user1", "sess1", "test input")
+        assert state["task_id"] == "u1"
+        assert state["user_id"] == "user1"
         assert state["session_id"] == "sess1"
         assert state["user_input"] == "test input"
         assert state["loop_count"] == 0

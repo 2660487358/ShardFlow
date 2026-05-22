@@ -4,13 +4,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.1.0</version></parent>
-    <artifactId>kb-auth</artifactId>
+    <artifactId>shardflow-auth</artifactId>
     <dependencies>
-        <dependency><groupId>com.shardflow</groupId><artifactId>kb-common</artifactId></dependency>
-        <dependency><groupId>com.shardflow</groupId><artifactId>kb-tenant</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
         <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-api</artifactId><version>0.12.5</version></dependency>
         <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-impl</artifactId><version>0.12.5</version><scope>runtime</scope></dependency>
         <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-jackson</artifactId><version>0.12.5</version><scope>runtime</scope></dependency>
+        <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-crypto</artifactId></dependency>
     </dependencies>
 </project>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, Form, Input, Button, Typography, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
+import { login } from '@/api/client';
 
 const { Title } = Typography;
 
@@ -12,13 +13,12 @@ export default function LoginPage() {
 
   const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true);
-    // In production: POST /agent/v1/auth/login or Java kb-auth
-    // For now, use demo credentials
-    if (values.username === 'admin' && values.password === 'admin') {
-      setAuth('demo-token', 'default');
+    try {
+      const result = await login(values.username, values.password);
+      setAuth(result.token, values.username);
       message.success('登录成功');
-      navigate('/chat');
-    } else {
+      navigate('/');
+    } catch {
       message.error('用户名或密码错误');
     }
     setLoading(false);
@@ -27,13 +27,13 @@ export default function LoginPage() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f5f5f5' }}>
       <Card style={{ width: 400 }}>
-        <Title level={3} style={{ textAlign: 'center' }}>KnowledgeBridge</Title>
+        <Title level={3} style={{ textAlign: 'center' }}>ShardFlow</Title>
         <Form onFinish={handleLogin} layout="vertical">
           <Form.Item label="用户名" name="username" rules={[{ required: true }]}>
-            <Input placeholder="admin" />
+            <Input placeholder="alice" />
           </Form.Item>
           <Form.Item label="密码" name="password" rules={[{ required: true }]}>
-            <Input.Password placeholder="admin" />
+            <Input.Password placeholder="password" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={loading} block>登录</Button>

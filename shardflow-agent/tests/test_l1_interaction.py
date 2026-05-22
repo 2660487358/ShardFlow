@@ -73,14 +73,14 @@ class TestEntityExtractor:
 class TestSessionManager:
     @pytest.mark.asyncio
     async def test_create_session(self):
-        session = await session_manager.create_session("t1", "task1")
-        assert session["tenant_id"] == "t1"
+        session = await session_manager.create_session("u1", "task1")
+        assert session["user_id"] == "u1"
         assert session["task_id"] == "task1"
         assert "session_id" in session
 
     @pytest.mark.asyncio
     async def test_get_session_not_found(self):
-        session = await session_manager.get_session("t1", "nonexistent")
+        session = await session_manager.get_session("u1", "nonexistent")
         assert session is None
 
     @pytest.mark.asyncio
@@ -90,7 +90,7 @@ class TestSessionManager:
 
         retrieved = await session_manager.get_session("t2", "my-sess")
         assert retrieved is not None
-        assert retrieved["tenant_id"] == "t2"
+        assert retrieved["user_id"] == "t2"
 
     @pytest.mark.asyncio
     async def test_update_session(self):

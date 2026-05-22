@@ -3,14 +3,14 @@ from typing import Any
 
 def create_initial_state(
     task_id: str,
-    tenant_id: str,
+    user_id: str,
     session_id: str,
     user_input: str,
     max_rounds: int = 15,
 ) -> dict[str, Any]:
     return {
         "task_id": task_id,
-        "tenant_id": tenant_id,
+        "user_id": user_id,
         "session_id": session_id,
         "messages": [],
         "user_input": user_input,

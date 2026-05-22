@@ -27,8 +27,8 @@ class MemoryRecord(BaseModel):
     This is the canonical in-memory representation. Adapters serialize/deserialize
     to their respective backend formats.
     """
-    key: str                                              # Unique key within tenant+type namespace
-    tenant_id: str = ""
+    key: str                                              # Unique key within user+type namespace
+    user_id: str = ""
     memory_type: MemoryType = MemoryType.SHORT_TERM
     data: dict[str, Any] = Field(default_factory=dict)    # Payload
     version: int = 1                                       # Optimistic locking version

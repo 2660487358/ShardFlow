@@ -4,15 +4,15 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "kb_task")
+@Table(name = "shardflow_task")
 public class TaskEntity {
 
     @Id
     @Column(name = "task_id", length = 128)
     private String taskId;
 
-    @Column(name = "tenant_id", nullable = false, length = 64)
-    private String tenantId;
+    @Column(name = "user_id", nullable = false, length = 64)
+    private String userId;
 
     @Column(length = 512)
     private String title;
@@ -36,8 +36,8 @@ public class TaskEntity {
 
     public String getTaskId() { return taskId; }
     public void setTaskId(String taskId) { this.taskId = taskId; }
-    public String getTenantId() { return tenantId; }
-    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getDescription() { return description; }

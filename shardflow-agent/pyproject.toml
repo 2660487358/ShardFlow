@@ -1,7 +1,7 @@
 [project]
-name = "knowledgebridge-agent"
+name = "shardflow-agent"
 version = "0.1.0"
-description = "KnowledgeBridge Python inference layer (FastAPI) - core reasoning engine"
+description = "ShardFlow Python inference layer (FastAPI) - core reasoning engine"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.1",

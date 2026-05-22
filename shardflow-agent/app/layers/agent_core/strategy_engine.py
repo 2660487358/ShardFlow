@@ -20,38 +20,206 @@ class ReuseDecision:
         self.default_strategy = default_strategy
 
 
+# tool_combo 元素格式: {"name": str, "source": "builtin"|"mcp"}
+# 保留旧 string[] 格式兼容：get_default_strategy() 会同时返回 tool_combo 和 tool_combo_annotated
 DEFAULT_STRATEGIES: dict[str, dict[str, Any]] = {
+    # ═══════════════════════════════════════════════════════════
+    # 知识获取（通用）
+    # ═══════════════════════════════════════════════════════════
+    "technology_research": {
+        "sources": ["web_search", "official_doc", "github"],
+        "weights": {"web_search": 0.5, "official_doc": 0.3, "github": 0.2},
+        "tool_combo": [
+            {"name": "web_search", "source": "mcp"},
+            {"name": "read_file", "source": "builtin"},
+        ],
+    },
+    "web_search": {
+        "sources": ["web_search"],
+        "weights": {"web_search": 1.0},
+        "tool_combo": [
+            {"name": "web_search", "source": "mcp"},
+        ],
+    },
+    "knowledge_qa": {
+        "sources": ["web_search", "official_doc"],
+        "weights": {"web_search": 0.6, "official_doc": 0.4},
+        "tool_combo": [
+            {"name": "web_search", "source": "mcp"},
+        ],
+    },
+
+    # ═══════════════════════════════════════════════════════════
+    # 文档写作（通用）
+    # ═══════════════════════════════════════════════════════════
+    "doc_writing": {
+        "sources": ["web_search", "official_doc", "read_file"],
+        "weights": {"web_search": 0.4, "official_doc": 0.3, "read_file": 0.3},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "web_search", "source": "mcp"},
+            {"name": "write_file", "source": "builtin"},
+        ],
+    },
+    "code_generation": {
+        "sources": ["code_analyze", "github", "official_doc"],
+        "weights": {"code_analyze": 0.4, "github": 0.3, "official_doc": 0.3},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+            {"name": "write_file", "source": "builtin"},
+        ],
+    },
+
+    # ═══════════════════════════════════════════════════════════
+    # 任务管理（通用）
+    # ═══════════════════════════════════════════════════════════
+    "task_planning": {
+        "sources": ["web_search", "read_file"],
+        "weights": {"web_search": 0.6, "read_file": 0.4},
+        "tool_combo": [
+            {"name": "web_search", "source": "mcp"},
+            {"name": "read_file", "source": "builtin"},
+        ],
+    },
+    "schedule_management": {
+        "sources": ["web_search"],
+        "weights": {"web_search": 1.0},
+        "tool_combo": [
+            {"name": "web_search", "source": "mcp"},
+        ],
+    },
+    "file_management": {
+        "sources": ["read_file"],
+        "weights": {"read_file": 1.0},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "write_file", "source": "builtin"},
+        ],
+    },
+
+    # ═══════════════════════════════════════════════════════════
+    # 代码相关（@Deprecated — 保留为子集，新任务优先使用通用策略）
+    # ═══════════════════════════════════════════════════════════
     "microservice_auth_exploration": {
         "sources": ["code_comments", "official_doc", "stackoverflow"],
         "weights": {"code_comments": 0.5, "official_doc": 0.3, "stackoverflow": 0.2},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+        ],
+        "_deprecated": True,
     },
     "dependency_chain_analysis": {
         "sources": ["code_comments", "github_issues", "official_doc"],
         "weights": {"code_comments": 0.6, "github_issues": 0.2, "official_doc": 0.2},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+        ],
+        "_deprecated": True,
     },
     "performance_optimization": {
         "sources": ["official_doc", "stackoverflow", "github_issues"],
         "weights": {"official_doc": 0.4, "stackoverflow": 0.3, "github_issues": 0.3},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+            {"name": "web_search", "source": "mcp"},
+        ],
+        "_deprecated": True,
     },
     "api_design_analysis": {
         "sources": ["official_doc", "code_comments", "github_issues"],
         "weights": {"official_doc": 0.5, "code_comments": 0.3, "github_issues": 0.2},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+        ],
+        "_deprecated": True,
     },
     "error_troubleshooting": {
         "sources": ["stackoverflow", "github_issues", "official_doc"],
         "weights": {"stackoverflow": 0.4, "github_issues": 0.4, "official_doc": 0.2},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+            {"name": "web_search", "source": "mcp"},
+        ],
+        "_deprecated": True,
     },
     "config_analysis": {
         "sources": ["code_comments", "official_doc"],
         "weights": {"code_comments": 0.7, "official_doc": 0.3},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+        ],
+        "_deprecated": True,
     },
     "database_schema_exploration": {
         "sources": ["code_comments", "official_doc"],
         "weights": {"code_comments": 0.5, "official_doc": 0.5},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+        ],
+        "_deprecated": True,
     },
     "general_code_exploration": {
         "sources": ["code_comments", "official_doc", "stackoverflow"],
         "weights": {"code_comments": 0.4, "official_doc": 0.3, "stackoverflow": 0.3},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+        ],
+        "_deprecated": True,
+    },
+    "architecture_design": {
+        "sources": ["official_doc", "github", "web_search"],
+        "weights": {"official_doc": 0.4, "github": 0.3, "web_search": 0.3},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+            {"name": "code_analyze", "source": "builtin"},
+            {"name": "web_search", "source": "mcp"},
+        ],
+        "_deprecated": True,
+    },
+
+    # ═══════════════════════════════════════════════════════════
+    # 交互协作（通用）
+    # ═══════════════════════════════════════════════════════════
+    "session_resume": {
+        "sources": ["read_file"],
+        "weights": {"read_file": 1.0},
+        "tool_combo": [
+            {"name": "read_file", "source": "builtin"},
+        ],
+    },
+    "communication": {
+        "sources": [],
+        "weights": {},
+        "tool_combo": [],
+    },
+    "user_feedback": {
+        "sources": [],
+        "weights": {},
+        "tool_combo": [],
+    },
+    "notification": {
+        "sources": [],
+        "weights": {},
+        "tool_combo": [],
+    },
+
+    # ═══════════════════════════════════════════════════════════
+    # 兜底
+    # ═══════════════════════════════════════════════════════════
+    "general_qa": {
+        "sources": ["web_search"],
+        "weights": {"web_search": 1.0},
+        "tool_combo": [
+            {"name": "web_search", "source": "mcp"},
+        ],
     },
 }
 

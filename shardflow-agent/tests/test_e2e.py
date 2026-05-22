@@ -90,7 +90,7 @@ async def test_react_loop_runs_end_to_end():
     """Simulate full ReAct loop through all nodes until termination by loop limit."""
     state = create_initial_state(
         task_id="test-e2e-001",
-        tenant_id="test-tenant",
+        user_id="test-user",
         session_id="test-session",
         user_input="trace Dubbo registry flow",
         max_rounds=3,
@@ -123,7 +123,7 @@ async def test_state_transitions_smoke():
     """Verify state flows: intent set, loop counts up, final answer populated."""
     state = create_initial_state(
         task_id="test-transitions-001",
-        tenant_id="test-tenant",
+        user_id="test-user",
         session_id="test-session",
         user_input="find all Redis config",
         max_rounds=2,
@@ -164,7 +164,7 @@ async def test_loop_limit_reached():
     """Verify graph terminates immediately when loop_count is at the limit."""
     state = create_initial_state(
         task_id="test-limit-001",
-        tenant_id="test-tenant",
+        user_id="test-user",
         session_id="test-session",
         user_input="trace all dependencies",
         max_rounds=1,
@@ -193,7 +193,7 @@ async def test_acceptance_scenario_dubbo_registry():
     """
     state = create_initial_state(
         task_id="acceptance-dubbo-001",
-        tenant_id="test-tenant",
+        user_id="test-user",
         session_id="test-session",
         user_input="理清Dubbo注册链路",
         max_rounds=3,

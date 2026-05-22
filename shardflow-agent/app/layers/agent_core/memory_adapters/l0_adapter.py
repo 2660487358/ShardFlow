@@ -3,7 +3,7 @@
 Wraps the existing L0Cache (OrderedDict-based LRU) for sub-millisecond reads.
 Used as the first tier in CompositeAdapter's L0→L1→L2 degrade-read chain.
 
-Key format: "{tenant_id}:{memory_type.value}:{key}"
+Key format: "{user_id}:{memory_type.value}:{key}"
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -18,11 +18,11 @@ class L0CacheAdapter:
     def __init__(self, max_size: int = 256) -> None:
         self._cache = L0Cache(max_size=max_size)
 
-    def _build_key(self, tenant_id: str, memory_type: MemoryType, key: str) -> str:
-        return f"{tenant_id}:{memory_type.value}:{key}"
+    def _build_key(self, user_id: str, memory_type: MemoryType, key: str) -> str:
+        return f"{user_id}:{memory_type.value}:{key}"
 
-    async def read(self, tenant_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
-        cache_key = self._build_key(tenant_id, memory_type, key)
+    async def read(self, user_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
+        cache_key = self._build_key(user_id, memory_type, key)
         record = self._cache.get(cache_key)
         if record is None:
             return None
@@ -30,30 +30,30 @@ class L0CacheAdapter:
             return record
         # Handle legacy dict entries (backward compat)
         if isinstance(record, dict):
-            return MemoryRecord(key=key, tenant_id=tenant_id, memory_type=memory_type, data=record)
+            return MemoryRecord(key=key, user_id=user_id, memory_type=memory_type, data=record)
         return None
 
-    async def write(self, tenant_id: str, memory_type: MemoryType, key: str,
+    async def write(self, user_id: str, memory_type: MemoryType, key: str,
                     data: dict[str, Any], ttl_seconds: int = 0) -> MemoryRecord:
-        cache_key = self._build_key(tenant_id, memory_type, key)
+        cache_key = self._build_key(user_id, memory_type, key)
         now = datetime.now(timezone.utc)
         record = MemoryRecord(
-            key=key, tenant_id=tenant_id, memory_type=memory_type,
+            key=key, user_id=user_id, memory_type=memory_type,
             data=data, ttl_seconds=ttl_seconds, updated_at=now,
         )
         self._cache.set(cache_key, record)
         return record
 
-    async def delete(self, tenant_id: str, memory_type: MemoryType, key: str) -> bool:
-        cache_key = self._build_key(tenant_id, memory_type, key)
+    async def delete(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
+        cache_key = self._build_key(user_id, memory_type, key)
         existed = self._cache.get(cache_key) is not None
         self._cache.invalidate(cache_key)
         return existed
 
-    async def search(self, tenant_id: str, memory_type: MemoryType,
+    async def search(self, user_id: str, memory_type: MemoryType,
                      query: MemoryQuery) -> list[MemoryRecord]:
         # L0 is not optimized for search — delegate to higher tiers
-        prefix = self._build_key(tenant_id, memory_type, "")
+        prefix = self._build_key(user_id, memory_type, "")
         results: list[MemoryRecord] = []
         for cache_key, record in list(self._cache._cache.items()):
             if cache_key.startswith(prefix) and isinstance(record, MemoryRecord):
@@ -61,6 +61,6 @@ class L0CacheAdapter:
                     results.append(record)
         return sorted(results, key=lambda r: r.updated_at, reverse=True)[:query.limit]
 
-    async def exists(self, tenant_id: str, memory_type: MemoryType, key: str) -> bool:
-        cache_key = self._build_key(tenant_id, memory_type, key)
+    async def exists(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
+        cache_key = self._build_key(user_id, memory_type, key)
         return self._cache.get(cache_key) is not None

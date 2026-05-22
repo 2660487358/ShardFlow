@@ -9,7 +9,7 @@
     <version>0.1.0</version>
     <packaging>pom</packaging>
     <name>ShardFlow Java Peripheral Service</name>
-    <description>Java peripheral services for KnowledgeBridge: shard persistence, strategy retrieval, auth</description>
+    <description>Java peripheral services for ShardFlow: shard persistence, strategy retrieval, auth</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -19,14 +19,16 @@
     </parent>
 
     <modules>
-        <module>kb-common</module>
-        <module>kb-tenant</module>
-        <module>kb-callback</module>
-        <module>kb-shard</module>
-        <module>kb-strategy</module>
-        <module>kb-auth</module>
-        <module>kb-task</module>
-        <module>kb-app</module>
+        <module>shardflow-common</module>
+        <module>shardflow-user-context</module>
+        <module>shardflow-callback</module>
+        <module>shardflow-shard</module>
+        <module>shardflow-strategy</module>
+        <module>shardflow-auth</module>
+        <module>shardflow-profile</module>
+        <module>shardflow-mcp</module>
+        <module>shardflow-task</module>
+        <module>shardflow-app</module>
     </modules>
 
     <properties>
@@ -40,7 +42,7 @@
         <dependencies>
             <dependency>
                 <groupId>com.shardflow</groupId>
-                <artifactId>kb-common</artifactId>
+                <artifactId>shardflow-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -8,9 +8,9 @@ public class StrategyNotFoundException extends RuntimeException {
     public StrategyNotFoundException(String id) { super("Strategy not found: " + id); }
 }
 
-public class TenantMismatchException extends RuntimeException {
-    public TenantMismatchException(String expected, String actual) {
-        super("Tenant mismatch: expected=" + expected + " actual=" + actual);
+public class UserMismatchException extends RuntimeException {
+    public UserMismatchException(String expected, String actual) {
+        super("User mismatch: expected=" + expected + " actual=" + actual);
     }
 }
 

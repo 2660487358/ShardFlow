@@ -3,11 +3,11 @@ from app.layers.agent_core.shard_decision import shard_decision_gate
 from app.models.context_shard import ContextShard, ExplorationDepth, KeyDecision
 
 
-def _make_shard(task_id: str = "t1", confirmed: list | None = None,
+def _make_shard(task_id: str = "u1", confirmed: list | None = None,
                 excluded: list | None = None, pending: list | None = None,
                 key_decisions: list | None = None) -> ContextShard:
     return ContextShard(
-        task_id=task_id, tenant_id="tenant1", session_seq=1,
+        task_id=task_id, user_id="user1", session_seq=1,
         confirmed=confirmed or [],
         excluded=excluded or [],
         pending=pending or [],

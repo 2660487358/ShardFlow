@@ -17,7 +17,7 @@ from app.infrastructure.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
-DEGRADATION_QUEUE_KEY = "kb:degradation:write_queue"
+DEGRADATION_QUEUE_KEY = "shardflow:degradation:write_queue"
 RETRY_INTERVAL = 60  # Retry every 60 seconds
 MAX_RETRY_AGE = 3600 * 6  # Give up after 6 hours
 
@@ -33,12 +33,12 @@ class MemoryDegradation:
     # Buffer failed writes
     # ------------------------------------------------------------------
 
-    async def buffer_write(self, tenant_id: str, memory_type: str, key: str,
+    async def buffer_write(self, user_id: str, memory_type: str, key: str,
                            data: dict[str, Any]) -> None:
         """Buffer a failed write to Redis degradation queue for later retry."""
         r = await redis_client.get_redis()
         entry = json.dumps({
-            "tenant_id": tenant_id,
+            "user_id": user_id,
             "memory_type": memory_type,
             "key": key,
             "data": data,

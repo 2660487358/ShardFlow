@@ -1,30 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Card, Spin, Tag, Space, Typography } from 'antd';
-import { SendOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Input, Button, Typography, message } from 'antd';
+import { SendOutlined, ThunderboltOutlined, ApiOutlined } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
 import { sendConversation } from '@/api/client';
 import { useStore } from '@/store';
 import type { ChatMessage, SSEEvent } from '@/types';
-import ShardViewer from '@/components/shard/ShardViewer';
-import StrategyPanel from '@/components/strategy/StrategyPanel';
-import SourceVisualization from '@/components/source/SourceVisualization';
 
 const { TextArea } = Input;
-const { Text } = Typography;
+const { Text, Title } = Typography;
 
-const eventColors: Record<string, string> = {
-  intent: 'blue', think: 'purple', action: 'orange', observe: 'green',
-  shard_trigger: 'red', shard_result: 'magenta', strategy: 'cyan',
-  progress: 'geekblue', done: 'green', error: 'red',
-};
+interface Props {
+  onLoginRequired: () => void;
+  isAuthenticated: boolean;
+}
 
-const eventLabels: Record<string, string> = {
-  intent: '意图', think: '思考', action: '工具调用', observe: '观察',
-  shard_trigger: '状态包', shard_result: '状态结果', strategy: '策略',
-  progress: '进度', done: '完成', error: '错误',
-};
-
-export default function ChatPanel() {
-  const { messages, addMessage, isStreaming, setStreaming, activeTaskId, activeSessionId, setShard } = useStore();
+export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
+  const { messages, addMessage, isStreaming, setStreaming, activeTaskId, activeSessionId } = useStore();
   const [input, setInput] = useState('');
   const messagesEnd = useRef<HTMLDivElement>(null);
 
@@ -33,7 +24,10 @@ export default function ChatPanel() {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || !activeTaskId || isStreaming) return;
+    if (!input.trim() || isStreaming) return;
+    if (!isAuthenticated) { onLoginRequired(); return; }
+
+    const effectiveTaskId = activeTaskId || `task-${Date.now()}`;
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: input, timestamp: Date.now() };
     addMessage(userMsg);
     setInput('');
@@ -43,112 +37,181 @@ export default function ChatPanel() {
     let assistantContent = '';
 
     await sendConversation(
-      activeTaskId,
-      userMsg.content,
-      activeSessionId || '',
-      (event: SSEEvent) => {
+      effectiveTaskId, userMsg.content, activeSessionId || '',
+      (event: { type: string; data: Record<string, unknown> }) => {
         const data = event.data || {};
-        assistantContent += formatEventContent(event.type, data);
-        // Update the assistant message in-place
+        if (event.type === 'profile_applied') { message.info(`已应用偏好：${data.preferred_depth || '默认'}`); return; }
+        if (event.type === 'done') return;
+        const content = extractContent(event.type, data);
+        assistantContent += content;
         const existing = useStore.getState().messages.find((m) => m.id === assistantMsgId);
         if (existing) {
           useStore.setState({
             messages: useStore.getState().messages.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, content: assistantContent, eventType: event.type }
-                : m
-            ),
+              m.id === assistantMsgId ? { ...m, content: assistantContent } : m),
           });
         } else {
-          addMessage({ id: assistantMsgId, role: 'assistant', content: assistantContent, eventType: event.type, timestamp: Date.now() });
-        }
-
-        // Handle shard data if present
-        if (event.type === 'shard_result' && data.summary) {
-          setShard(data as unknown as never);
+          addMessage({
+            id: assistantMsgId, role: 'assistant', content: assistantContent,
+            eventType: event.type as SSEEvent['type'], timestamp: Date.now(),
+          });
         }
       },
       (err) => {
         addMessage({ id: (Date.now() + 2).toString(), role: 'system', content: `Error: ${err.message}`, eventType: 'error', timestamp: Date.now() });
         setStreaming(false);
       },
-      () => {
-        setStreaming(false);
-      },
+      () => setStreaming(false),
     );
   };
 
-  const formatEventContent = (type: string, data: Record<string, unknown>): string => {
+  const extractContent = (type: string, data: Record<string, unknown>): string => {
     switch (type) {
-      case 'intent': return `**意图**: ${data.intent} (置信度 ${data.confidence})\n\n`;
-      case 'think': return `${data.reasoning || ''}`;
-      case 'action': return `**🔧 调用工具**: ${data.tool}\n参数: ${JSON.stringify(data.params)}\n\n`;
-      case 'observe': return `**结果**: ${data.result}\n\n`;
-      case 'done': return `\n\n---\n**✅ 推理完成**\n${data.answer || ''}`;
-      case 'error': return `\n\n**❌ 错误**: ${data.message}`;
+      case 'message': return `${data.content || ''}\n\n`;
+      case 'tool_call_start': return `**🔧 调用工具**: ${data.tool_name}\n\n`;
+      case 'tool_call_result': return `${data.success ? '✅' : '❌'} **${data.tool_name}** (${data.latency_ms}ms)\n${data.snippet || ''}\n\n`;
+      case 'strategy_found': return `**📋 策略**: ${data.decision} (相似度 ${data.similarity})\n\n`;
       default: return '';
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 140px)' }}>
-      <div style={{ flex: 1, overflow: 'auto', padding: '0 0 16px 0' }}>
-        {messages.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#999', paddingTop: 60 }}>
-            输入你的问题开始探索代码库
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Messages */}
+      <div style={{ flex: 1, overflow: 'auto', paddingBottom: 16 }}>
+        {messages.length === 0 ? (
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', minHeight: '60vh', textAlign: 'center',
+          }}>
+            <Title level={2} style={{ fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>
+              有什么我可以帮你的？
+            </Title>
+            <Text style={{ fontSize: 15, color: '#9ca3af', marginBottom: 32 }}>
+              ShardFlow 基于你的画像智能检索知识，提供个性化研究辅助
+            </Text>
           </div>
-        )}
-        {messages.map((msg) => (
-          <div key={msg.id} style={{ marginBottom: 12 }}>
-            {msg.role === 'user' ? (
-              <Card size="small" style={{ background: '#e6f4ff', marginLeft: '20%' }}>
-                <Text>{msg.content}</Text>
-              </Card>
-            ) : msg.role === 'system' ? (
-              <Card size="small" style={{ background: '#fff2f0' }}>
-                <Text type="danger">{msg.content}</Text>
-              </Card>
-            ) : (
-              <Card
-                size="small"
-                title={
-                  msg.eventType ? (
-                    <Space>
-                      <Tag color={eventColors[msg.eventType] || 'default'}>
-                        {eventLabels[msg.eventType] || msg.eventType}
-                      </Tag>
-                    </Space>
-                  ) : null
-                }
-                style={{ marginRight: '20%' }}
-              >
-                <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
-              </Card>
-            )}
-          </div>
-        ))}
-        {isStreaming && (
-          <div style={{ textAlign: 'center', padding: 8 }}>
-            <Spin indicator={<LoadingOutlined spin />} /> 推理中...
-          </div>
+        ) : (
+          messages.map((msg) => (
+            <div key={msg.id} style={{
+              display: 'flex',
+              justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+              marginBottom: 24,
+            }}>
+              {msg.role === 'user' ? (
+                <div style={{
+                  background: '#4e7dff',
+                  color: '#ffffff',
+                  borderRadius: '12px 12px 4px 12px',
+                  padding: '12px 16px',
+                  maxWidth: '85%',
+                  fontSize: 14,
+                  lineHeight: '22px',
+                  boxShadow: '0 1px 3px rgba(78,125,255,0.3)',
+                }}>
+                  {msg.content}
+                </div>
+              ) : msg.role === 'system' ? (
+                <Text type="danger" style={{ fontSize: 13 }}>{msg.content}</Text>
+              ) : (
+                <div style={{
+                  background: 'transparent',
+                  color: '#1a1a2e',
+                  fontSize: 15,
+                  lineHeight: '26px',
+                  maxWidth: '100%',
+                }}>
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          ))
         )}
         <div ref={messagesEnd} />
       </div>
 
-      <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
-        <Space.Compact style={{ width: '100%' }}>
+      {/* Input */}
+      <div style={{
+        padding: '16px 0 24px',
+        borderTop: messages.length > 0 ? 'none' : 'none',
+      }}>
+        <div style={{
+          background: '#ffffff',
+          border: `1px solid ${isAuthenticated ? '#e5e7eb' : '#e5e7eb'}`,
+          borderRadius: 16,
+          padding: '8px 8px 8px 20px',
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: 8,
+          boxShadow: isAuthenticated ? '0 0 0 0 rgba(78,125,255,0)' : 'none',
+          transition: 'box-shadow 250ms, border-color 250ms',
+          cursor: isAuthenticated ? 'text' : 'pointer',
+          opacity: isAuthenticated ? 1 : 0.6,
+        }}
+        onClick={() => { if (!isAuthenticated) onLoginRequired(); }}
+        >
           <TextArea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder="输入你的问题，例如：理清Dubbo注册链路..."
-            autoSize={{ minRows: 2, maxRows: 6 }}
-            disabled={isStreaming}
+            placeholder={isAuthenticated ? '输入你的问题...' : '登录后开始对话'}
+            autoSize={{ minRows: 1, maxRows: 6 }}
+            disabled={!isAuthenticated || isStreaming}
+            style={{
+              border: 'none',
+              boxShadow: 'none',
+              background: 'transparent',
+              resize: 'none',
+              fontSize: 15,
+              lineHeight: '24px',
+              padding: '4px 0',
+              flex: 1,
+            }}
           />
-          <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={isStreaming} style={{ height: 'auto' }}>
-            发送
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={(e) => {
+              if (!isAuthenticated) { e.stopPropagation(); onLoginRequired(); return; }
+              handleSend();
+            }}
+            loading={isStreaming}
+            style={{
+              height: 40,
+              width: 40,
+              borderRadius: 12,
+              background: (!isAuthenticated || !input.trim()) ? '#d1d5db' : '#4e7dff',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          />
+        </div>
+
+        {/* Quick actions */}
+        <div style={{
+          display: 'flex', gap: 8, marginTop: 12,
+          justifyContent: 'center',
+        }}>
+          <Button
+            type="text"
+            icon={<ThunderboltOutlined />}
+            onClick={() => { if (!isAuthenticated) { onLoginRequired(); return; } }}
+            style={{ color: '#9ca3af', fontSize: 13, borderRadius: 8 }}
+          >
+            Skill 市场
           </Button>
-        </Space.Compact>
+          <Button
+            type="text"
+            icon={<ApiOutlined />}
+            onClick={() => { if (!isAuthenticated) { onLoginRequired(); return; } }}
+            style={{ color: '#9ca3af', fontSize: 13, borderRadius: 8 }}
+          >
+            接入 MCP
+          </Button>
+        </div>
       </div>
     </div>
   );

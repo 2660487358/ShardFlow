@@ -1,0 +1,15 @@
+package com.shardflow.app;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@SpringBootApplication(scanBasePackages = "com.shardflow")
+@EnableScheduling
+@EnableAsync
+public class ShardflowApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ShardflowApplication.class, args);
+    }
+}

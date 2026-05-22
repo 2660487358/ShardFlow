@@ -23,14 +23,25 @@ class ShardDecisionGate:
         return max(remaining, 0)
 
     def depth_advisor(self, state: dict[str, Any]) -> str:
+        """返回通用分析深度建议：OVERVIEW/DETAIL/DEEP_DIVE。
+
+        优先使用用户画像偏好，其次根据 pending 数量推断。
+        """
+        # 优先读取用户画像中的偏好设置
+        user_context = state.get("user_context") or {}
+        preferred = user_context.get("preferred_depth", "")
+        if preferred in ("OVERVIEW", "DETAIL", "DEEP_DIVE"):
+            return preferred
+
+        # 根据 pending 数量推断深度
         pending = state.get("pending", [])
         count = len(pending) if pending else 0
         if count <= 2:
-            return "SERVICE_LEVEL"
+            return "OVERVIEW"
         elif count <= 5:
-            return "METHOD_LEVEL"
+            return "DETAIL"
         else:
-            return "LINE_LEVEL"
+            return "DEEP_DIVE"
 
 
 shard_decision_gate = ShardDecisionGate()

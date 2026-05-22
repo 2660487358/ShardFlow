@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.1.0</version></parent>
+    <artifactId>shardflow-app</artifactId>
+    <packaging>jar</packaging>
+    <dependencies>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-callback</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-shard</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-strategy</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-auth</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-task</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-profile</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-mcp</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+    </dependencies>
+    <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>
+</project>

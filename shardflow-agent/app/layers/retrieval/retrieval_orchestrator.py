@@ -254,25 +254,129 @@ def _strip_html(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# WebSearch Adapter — 通用联网搜索（通过 MCP Client）
+# ---------------------------------------------------------------------------
+
+class WebSearchAdapter(SearchAdapter):
+    """通用联网搜索适配器，通过 MCP Client / Tavily API 进行搜索。"""
+
+    def __init__(self) -> None:
+        super().__init__("web_search", rate=10.0, burst=5)
+
+    async def search(self, query: str) -> list[SearchResult]:
+        if not await self._bucket.acquire():
+            logger.warning("WebSearch rate limit hit, using mock")
+            return self._mock_search(query) if settings.retrieval_fallback_to_mock else []
+
+        try:
+            from app.layers.retrieval.web_searcher import web_searcher
+            return await web_searcher.search(query)
+        except Exception as e:
+            logger.warning(f"WebSearch failed: {e}")
+            return self._mock_search(query) if settings.retrieval_fallback_to_mock else []
+
+
+# ---------------------------------------------------------------------------
+# ProfileSearch Adapter — 用户画像检索
+# ---------------------------------------------------------------------------
+
+class ProfileSearchAdapter(SearchAdapter):
+    """用户画像检索适配器，获取用户偏好、专业领域、交互习惯。"""
+
+    def __init__(self) -> None:
+        super().__init__("profile", rate=20.0, burst=10)
+
+    async def search(self, query: str) -> list[SearchResult]:
+        if not await self._bucket.acquire():
+            return []
+
+        try:
+            from app.layers.retrieval.profile_searcher import profile_searcher
+            # query 格式: "preferences:{user_id}" / "expertise:{user_id}" / "habits:{user_id}"
+            parts = query.split(":", 1)
+            search_type = parts[0] if len(parts) > 1 else "preferences"
+            user_id = parts[1] if len(parts) > 1 else query
+
+            profile = await profile_searcher.get_full_profile(user_id)
+            if profile is None:
+                return []
+
+            if search_type == "preferences":
+                data = profile.preferences.model_dump()
+            elif search_type == "expertise":
+                data = profile.expertise.model_dump()
+            elif search_type == "habits":
+                data = profile.habits.model_dump()
+            else:
+                data = profile.to_inject_dict()
+
+            return [SearchResult(
+                source="profile",
+                title=f"User Profile: {user_id}",
+                snippet=str(data)[:500],
+                url=f"internal://profile/{user_id}",
+                relevance_score=1.0,
+                metadata=data,
+            )]
+        except Exception as e:
+            logger.warning(f"ProfileSearch failed: {e}")
+            return []
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator — parallel multi-source search with degradation
 # ---------------------------------------------------------------------------
 
 class RetrievalOrchestrator:
-    """Orchestrates parallel search across multiple sources with per-source enable/disable."""
+    """Orchestrates parallel search across multiple sources with per-source enable/disable.
+
+    支持两种模式：
+    1. 配置驱动：使用 settings.retrieval_sources_enabled（兼容旧行为）
+    2. 意图驱动：根据任务意图自动选择检索源（新增，通过 multi_source_search 的 intent 参数激活）
+    """
+
+    # 意图 → 推荐检索源映射（意图驱动模式）
+    INTENT_SOURCE_MAP: dict[str, list[str]] = {
+        "research":          ["web_search", "official_doc", "github"],
+        "web_search":        ["web_search"],
+        "knowledge_qa":      ["web_search", "official_doc"],
+        "write_doc":         ["web_search", "official_doc", "read_file"],
+        "write_code":        ["github", "official_doc", "read_file"],
+        "task_plan":         ["web_search", "official_doc"],
+        "schedule":          ["web_search"],
+        "file_op":           ["read_file"],
+        "code_explore":      ["github", "stackoverflow", "official_doc"],
+        "code_fix":          ["stackoverflow", "github", "official_doc"],
+        "design_proposal":   ["official_doc", "github", "web_search"],
+        "continue_task":     ["profile", "read_file"],
+        "feedback":          [],
+        "message_send":      [],
+        "notification":      [],
+        "general_qa":        ["web_search"],
+    }
 
     def __init__(self) -> None:
         self.official_doc = OfficialDocAdapter()
         self.stackoverflow = StackOverflowAdapter()
         self.github = GitHubAdapter()
+        self.web_search = WebSearchAdapter()
+        self.profile = ProfileSearchAdapter()
 
     def _enabled_sources(self) -> list[str]:
         return [s.strip() for s in settings.retrieval_sources_enabled.split(",") if s.strip()]
+
+    def _sources_for_intent(self, intent: str) -> list[str]:
+        """按意图获取推荐检索源，未匹配时回退到通用搜索。"""
+        return self.INTENT_SOURCE_MAP.get(intent, ["web_search"])
 
     def _adapter_for(self, source: str) -> SearchAdapter | None:
         mapping: dict[str, SearchAdapter] = {
             "official_doc": self.official_doc,
             "stackoverflow": self.stackoverflow,
             "github": self.github,
+            "web_search": self.web_search,
+            "profile": self.profile,
+            "read_file": None,  # read_file 不是检索适配器，由工具层处理
         }
         return mapping.get(source)
 
@@ -283,14 +387,30 @@ class RetrievalOrchestrator:
             return []
         return await adapter.search(query)
 
-    async def multi_source_search(self, query: str, tenant_id: str = "") -> list[SearchResult]:
-        enabled = self._enabled_sources()
-        if not enabled:
+    async def multi_source_search(self, query: str, user_id: str = "",
+                                  intent: str = "") -> list[SearchResult]:
+        """多源并行检索。
+
+        Args:
+            query: 搜索查询
+            user_id: 用户 ID（用于 profile 检索）
+            intent: 意图类型（可选）。提供时按意图选择源，否则使用全局配置。
+
+        Returns:
+            合并排序后的搜索结果列表
+        """
+        # 意图驱动 vs 配置驱动
+        if intent:
+            sources = self._sources_for_intent(intent)
+        else:
+            sources = self._enabled_sources()
+
+        if not sources:
             logger.warning("No retrieval sources enabled")
             return []
 
         tasks: dict[str, asyncio.Task[list[SearchResult]]] = {}
-        for source in enabled:
+        for source in sources:
             adapter = self._adapter_for(source)
             if adapter:
                 tasks[source] = asyncio.create_task(adapter.search(query), name=f"search_{source}")

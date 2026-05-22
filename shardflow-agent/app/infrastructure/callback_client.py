@@ -82,5 +82,19 @@ class CallbackClient:
             await self._client.aclose()
             self._client = None
 
+    async def update_profile(self, user_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Callback to Java kb-callback to update user profile.
+
+        POST /api/v1/callback/profile
+        Idempotency key: user_id
+        """
+        client = await self._get_client()
+        resp = await client.post(
+            "/api/v1/callback/profile",
+            json={"user_id": user_id, "updates": updates},
+        )
+        resp.raise_for_status()
+        return dict(resp.json())
+
 
 callback_client = CallbackClient()

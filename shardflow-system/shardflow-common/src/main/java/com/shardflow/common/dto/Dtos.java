@@ -5,12 +5,17 @@ import java.util.Map;
 
 public record ShardSaveRequest(
     @NotBlank String taskId,
-    @NotBlank String tenantId,
+    @NotBlank String userId,
     int sessionSeq,
+    String taskType,
+    String taskGoal,
+    Object knowledgeState,
+    Object userContext,
+    Object executionState,
+    Map<String, Double> sourcePreference,
     Object confirmed,
     Object excluded,
     Object pending,
-    Map<String, Double> sourcePreference,
     String explorationDepth,
     Object keyDecisions
 ) {}
@@ -18,7 +23,7 @@ public record ShardSaveRequest(
 public record ShardResponse(
     String id,
     String taskId,
-    String tenantId,
+    String userId,
     int sessionSeq,
     Object confirmed,
     Object excluded,
@@ -35,3 +40,9 @@ public record StrategySearchRequest(
 ) {}
 
 public record ApiError(int status, String message, String detail) {}
+
+public record ProfileUpdateRequest(
+    Object preferences,
+    Object expertise,
+    Object habits
+) {}

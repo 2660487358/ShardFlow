@@ -11,7 +11,7 @@ class AuditEvent(BaseModel):
     event_id: str
     event_type: str
     timestamp: str
-    tenant_id: str
+    user_id: str
     session_id: str
     task_id: str = ""
     actor: str = "agent"
@@ -27,24 +27,24 @@ class AuditLogger:
         self._running: bool = False
         self._task: asyncio.Task[Any] | None = None
 
-    def _make_event(self, event_type: str, tenant_id: str, session_id: str,
+    def _make_event(self, event_type: str, user_id: str, session_id: str,
                     task_id: str = "", details: dict[str, Any] | None = None,
                     severity: str = "INFO") -> AuditEvent:
         return AuditEvent(
             event_id=str(uuid.uuid4()),
             event_type=event_type,
             timestamp=datetime.now(timezone.utc).isoformat(),
-            tenant_id=tenant_id,
+            user_id=user_id,
             session_id=session_id,
             task_id=task_id,
             details=details or {},
             severity=severity,
         )
 
-    async def log(self, event_type: str, tenant_id: str, session_id: str,
+    async def log(self, event_type: str, user_id: str, session_id: str,
                   task_id: str = "", details: dict[str, Any] | None = None,
                   severity: str = "INFO") -> None:
-        event = self._make_event(event_type, tenant_id, session_id, task_id, details, severity)
+        event = self._make_event(event_type, user_id, session_id, task_id, details, severity)
         try:
             self._buffer.put_nowait(event)
         except asyncio.QueueFull:
@@ -54,7 +54,7 @@ class AuditLogger:
                 import json
                 r = await redis_client.get_redis()
                 await r.rpush(
-                    f"kb:audit:dead_letter:{tenant_id}",
+                    f"shardflow:audit:dead_letter:{user_id}",
                     json.dumps(event.model_dump(), ensure_ascii=False),
                 )
             except Exception:

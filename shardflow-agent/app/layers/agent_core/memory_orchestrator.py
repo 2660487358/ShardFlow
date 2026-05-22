@@ -19,8 +19,8 @@ class MemoryOrchestrator:
 
     Usage:
         orchestrator = MemoryOrchestrator()
-        record = await orchestrator.read(tenant_id, MemoryType.LONG_TERM, task_id)
-        await orchestrator.write(tenant_id, MemoryType.LONG_TERM, task_id, data)
+        record = await orchestrator.read(user_id, MemoryType.LONG_TERM, task_id)
+        await orchestrator.write(user_id, MemoryType.LONG_TERM, task_id, data)
     """
 
     def __init__(self) -> None:
@@ -43,79 +43,79 @@ class MemoryOrchestrator:
     # Read
     # ------------------------------------------------------------------
 
-    async def read(self, tenant_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
+    async def read(self, user_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
         """Read memory through L0→L1→L2 degrade chain."""
         adapter = self._adapter_for(memory_type)
-        return await adapter.read(tenant_id, memory_type, key)
+        return await adapter.read(user_id, memory_type, key)
 
     # ------------------------------------------------------------------
     # Write
     # ------------------------------------------------------------------
 
-    async def write(self, tenant_id: str, memory_type: MemoryType, key: str,
+    async def write(self, user_id: str, memory_type: MemoryType, key: str,
                     data: dict[str, Any], ttl_seconds: int = 0) -> MemoryRecord:
         """Write memory: broadcast to all tiers (L2 authoritative)."""
         adapter = self._adapter_for(memory_type)
-        return await adapter.write(tenant_id, memory_type, key, data, ttl_seconds)
+        return await adapter.write(user_id, memory_type, key, data, ttl_seconds)
 
     # ------------------------------------------------------------------
     # Delete
     # ------------------------------------------------------------------
 
-    async def delete(self, tenant_id: str, memory_type: MemoryType, key: str) -> bool:
+    async def delete(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
         adapter = self._adapter_for(memory_type)
-        return await adapter.delete(tenant_id, memory_type, key)
+        return await adapter.delete(user_id, memory_type, key)
 
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 
-    async def search(self, tenant_id: str, memory_type: MemoryType,
+    async def search(self, user_id: str, memory_type: MemoryType,
                      query: MemoryQuery) -> list[MemoryRecord]:
         adapter = self._adapter_for(memory_type)
-        return await adapter.search(tenant_id, memory_type, query)
+        return await adapter.search(user_id, memory_type, query)
 
     # ------------------------------------------------------------------
     # Exists
     # ------------------------------------------------------------------
 
-    async def exists(self, tenant_id: str, memory_type: MemoryType, key: str) -> bool:
+    async def exists(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
         adapter = self._adapter_for(memory_type)
-        return await adapter.exists(tenant_id, memory_type, key)
+        return await adapter.exists(user_id, memory_type, key)
 
     # ------------------------------------------------------------------
     # Convenience: shard-specific operations
     # ------------------------------------------------------------------
 
-    async def read_shard(self, tenant_id: str, task_id: str) -> dict[str, Any] | None:
+    async def read_shard(self, user_id: str, task_id: str) -> dict[str, Any] | None:
         """Read a LONG_TERM shard and return raw data dict (convenience)."""
-        record = await self.read(tenant_id, MemoryType.LONG_TERM, task_id)
+        record = await self.read(user_id, MemoryType.LONG_TERM, task_id)
         return record.data if record else None
 
-    async def write_shard(self, tenant_id: str, task_id: str,
+    async def write_shard(self, user_id: str, task_id: str,
                           shard_data: dict[str, Any]) -> MemoryRecord:
         """Write a LONG_TERM shard (convenience)."""
-        return await self.write(tenant_id, MemoryType.LONG_TERM, task_id, shard_data)
+        return await self.write(user_id, MemoryType.LONG_TERM, task_id, shard_data)
 
-    async def read_strategy(self, tenant_id: str, strategy_id: str) -> dict[str, Any] | None:
+    async def read_strategy(self, user_id: str, strategy_id: str) -> dict[str, Any] | None:
         """Read a META strategy record (convenience)."""
-        record = await self.read(tenant_id, MemoryType.META, strategy_id)
+        record = await self.read(user_id, MemoryType.META, strategy_id)
         return record.data if record else None
 
-    async def write_strategy(self, tenant_id: str, strategy_id: str,
+    async def write_strategy(self, user_id: str, strategy_id: str,
                              strategy_data: dict[str, Any]) -> MemoryRecord:
         """Write a META strategy record (convenience)."""
-        return await self.write(tenant_id, MemoryType.META, strategy_id, strategy_data)
+        return await self.write(user_id, MemoryType.META, strategy_id, strategy_data)
 
-    async def read_session(self, tenant_id: str, session_id: str) -> dict[str, Any] | None:
+    async def read_session(self, user_id: str, session_id: str) -> dict[str, Any] | None:
         """Read a SHORT_TERM session context (convenience)."""
-        record = await self.read(tenant_id, MemoryType.SHORT_TERM, session_id)
+        record = await self.read(user_id, MemoryType.SHORT_TERM, session_id)
         return record.data if record else None
 
-    async def write_session(self, tenant_id: str, session_id: str,
+    async def write_session(self, user_id: str, session_id: str,
                             session_data: dict[str, Any]) -> MemoryRecord:
         """Write a SHORT_TERM session context (convenience)."""
-        return await self.write(tenant_id, MemoryType.SHORT_TERM, session_id, session_data)
+        return await self.write(user_id, MemoryType.SHORT_TERM, session_id, session_data)
 
 
 # Global singleton

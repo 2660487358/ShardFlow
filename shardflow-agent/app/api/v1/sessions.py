@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("")
-async def list_sessions(x_tenant_id: str = Header(default="")) -> dict[str, Any]:
+async def list_sessions(x_user_id: str = Header(default="")) -> dict[str, Any]:
     r = await redis_client.get_redis()
-    prefix = f"kb:{x_tenant_id}:session:"
+    prefix = f"shardflow:{x_user_id}:session:"
     sessions: list[dict[str, Any]] = []
     try:
         async for key in r.scan_iter(match=f"{prefix}*", count=20):
@@ -30,14 +30,14 @@ async def list_sessions(x_tenant_id: str = Header(default="")) -> dict[str, Any]
                     "loop_count": data.get("state", {}).get("loop_count", 0),
                 })
     except Exception as e:
-        logger.warning(f"Failed to list sessions for tenant={x_tenant_id}: {e}")
+        logger.warning(f"Failed to list sessions for user={x_user_id}: {e}")
     return {"sessions": sessions, "total": len(sessions)}
 
 
 @router.get("/{session_id}")
-async def get_session(session_id: str, x_tenant_id: str = Header(default="")) -> Any:
+async def get_session(session_id: str, x_user_id: str = Header(default="")) -> Any:
     r = await redis_client.get_redis()
-    raw = await r.get(f"kb:{x_tenant_id}:session:{session_id}")
+    raw = await r.get(f"shardflow:{x_user_id}:session:{session_id}")
     if raw is None:
         raise HTTPException(status_code=404, detail="session not found")
     data: dict[str, Any] = json.loads(raw)
@@ -45,18 +45,18 @@ async def get_session(session_id: str, x_tenant_id: str = Header(default="")) ->
 
 
 @router.delete("/{session_id}")
-async def close_session(session_id: str, x_tenant_id: str = Header(default="")) -> dict[str, Any]:
+async def close_session(session_id: str, x_user_id: str = Header(default="")) -> dict[str, Any]:
     from app.layers.interaction.session_manager import session_manager
-    await session_manager.archive_session(x_tenant_id, session_id)
+    await session_manager.archive_session(x_user_id, session_id)
     return {"status": "archived", "session_id": session_id}
 
 
 @router.get("/{session_id}/shards")
-async def get_session_shards(session_id: str, x_tenant_id: str = Header(default="")) -> dict[str, Any]:
-    """Get shards filtered by session_id, not all tenant shards."""
+async def get_session_shards(session_id: str, x_user_id: str = Header(default="")) -> dict[str, Any]:
+    """Get shards filtered by session_id, not all user shards."""
     r = await redis_client.get_redis()
     # Filter by task_id extracted from session, falling back to session-level shard key
-    session_raw = await r.get(f"kb:{x_tenant_id}:session:{session_id}")
+    session_raw = await r.get(f"shardflow:{x_user_id}:session:{session_id}")
     if session_raw is None:
         return {"shards": [], "total": 0}
 
@@ -67,7 +67,7 @@ async def get_session_shards(session_id: str, x_tenant_id: str = Header(default=
     try:
         if task_id:
             # Fetch latest shard for this task
-            shard_raw = await r.get(f"kb:{x_tenant_id}:shard:{task_id}:latest")
+            shard_raw = await r.get(f"shardflow:{x_user_id}:shard:{task_id}:latest")
             if shard_raw:
                 shards.append(json.loads(shard_raw))
     except Exception as e:

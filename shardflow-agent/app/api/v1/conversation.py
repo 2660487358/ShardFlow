@@ -18,7 +18,7 @@ class ConversationRequest(BaseModel):
     task_id: str
     message: str
     session_id: str = ""
-    tenant_id: str = ""
+    user_id: str = ""
     stream: bool = True
     context: dict[str, Any] | None = None
 
@@ -26,20 +26,20 @@ class ConversationRequest(BaseModel):
 @router.post("/conversation")
 async def handle_conversation(
     request: ConversationRequest,
-    x_tenant_id: str = Header(default=""),
+    x_user_id: str = Header(default=""),
     x_session_id: str = Header(default=""),
     x_task_id: str = Header(default=""),
 ) -> Any:
-    tenant_id = x_tenant_id or request.tenant_id
-    if not tenant_id:
-        raise HTTPException(status_code=400, detail="tenant_id is required")
+    user_id = x_user_id or request.user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
     if not request.message or len(request.message) > 10000:
         raise HTTPException(status_code=400, detail="message must be non-empty and <= 10000 chars")
 
     session_id = x_session_id or request.session_id
-    session = await session_manager.get_session(tenant_id, session_id) if session_id else None
+    session = await session_manager.get_session(user_id, session_id) if session_id else None
     if session is None:
-        session = await session_manager.create_session(tenant_id, request.task_id or x_task_id, session_id)
+        session = await session_manager.create_session(user_id, request.task_id or x_task_id, session_id)
         session_id = session["session_id"]
 
     intent, confidence = await intent_recognizer.recognize_async(request.message)
@@ -47,7 +47,7 @@ async def handle_conversation(
 
     state = create_initial_state(
         task_id=request.task_id or x_task_id,
-        tenant_id=tenant_id,
+        user_id=user_id,
         session_id=session_id,
         user_input=request.message,
     )
@@ -82,8 +82,8 @@ async def handle_conversation(
 
 
 @router.get("/conversation/{session_id}")
-async def get_conversation(session_id: str, x_tenant_id: str = Header(default="")) -> dict[str, Any]:
-    session = await session_manager.get_session(x_tenant_id, session_id)
+async def get_conversation(session_id: str, x_user_id: str = Header(default="")) -> dict[str, Any]:
+    session = await session_manager.get_session(x_user_id, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
     return session

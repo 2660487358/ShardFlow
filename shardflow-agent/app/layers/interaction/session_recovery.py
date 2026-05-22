@@ -1,4 +1,4 @@
-﻿"""Cross-window session resume and recovery."""
+"""Cross-window session resume and recovery."""
 import json
 from typing import Any
 
@@ -7,9 +7,9 @@ from app.infrastructure.shard_cache import shard_cache
 
 
 class SessionRecoveryManager:
-    async def archive_with_shard_check(self, tenant_id: str, session_id: str, state: dict[str, Any]) -> dict[str, Any]:
+    async def archive_with_shard_check(self, user_id: str, session_id: str, state: dict[str, Any]) -> dict[str, Any]:
         r = await redis_client.get_redis()
-        session_key = f"kb:{tenant_id}:session:{session_id}"
+        session_key = f"shardflow:{user_id}:session:{session_id}"
 
         usage = state.get("context_usage_ratio", 0)
         task_id = state.get("task_id", "")
@@ -24,7 +24,7 @@ class SessionRecoveryManager:
 
         await r.delete(session_key)
         if task_id:
-            await r.publish(f"kb:{tenant_id}:events", json.dumps({
+            await r.publish(f"shardflow:{user_id}:events", json.dumps({
                 "event": "session_archived",
                 "task_id": task_id,
                 "session_id": session_id,
@@ -32,10 +32,10 @@ class SessionRecoveryManager:
 
         return state
 
-    async def try_resume_session(self, tenant_id: str, task_id: str) -> dict[str, Any] | None:
+    async def try_resume_session(self, user_id: str, task_id: str) -> dict[str, Any] | None:
 
         r = await redis_client.get_redis()
-        prefix = f"kb:{tenant_id}:session:"
+        prefix = f"shardflow:{user_id}:session:"
         async for key in r.scan_iter(match=f"{prefix}*", count=50):
             raw = await r.get(key)
             if raw:
@@ -44,11 +44,11 @@ class SessionRecoveryManager:
                     return data
         return None
 
-    async def inject_shard_on_resume(self, tenant_id: str, task_id: str,
+    async def inject_shard_on_resume(self, user_id: str, task_id: str,
                                      state: dict[str, Any]) -> dict[str, Any]:
         from app.layers.agent_core.context_shard import context_shard_manager
 
-        shard_data = await shard_cache.get_latest_shard(tenant_id, task_id)
+        shard_data = await shard_cache.get_latest_shard(user_id, task_id)
         if shard_data is None:
             return state
 

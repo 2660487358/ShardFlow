@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: shardflow
+      POSTGRES_PASSWORD: shardflow
+      POSTGRES_DB: shardflow
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./shardflow-system/shardflow-shard/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shardflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  java:
+    build:
+      context: ./shardflow-system
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/shardflow
+      SPRING_DATASOURCE_USERNAME: shardflow
+      SPRING_DATASOURCE_PASSWORD: shardflow
+      SPRING_DATA_REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  python:
+    build:
+      context: ./shardflow-agent
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: dev
+      REDIS_URL: redis://redis:6379/0
+      SHARDFLOW_JAVA_BASE_URL: http://java:8080
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      JAVA_API_KEY: ${JAVA_API_KEY}
+      LOG_LEVEL: INFO
+    depends_on:
+      java:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./shardflow-frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_AUTH_BASE_URL: http://localhost:8080
+    depends_on:
+      - python
+    restart: unless-stopped
+
+volumes:
+  pg-data:

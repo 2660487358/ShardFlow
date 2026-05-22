@@ -39,40 +39,40 @@ class OptimisticLock:
             self._cas_sha = await r.script_load(CAS_LUA_SCRIPT)
         return self._cas_sha
 
-    async def acquire(self, tenant_id: str, task_id: str) -> bool:
+    async def acquire(self, user_id: str, task_id: str) -> bool:
         """Acquire a distributed lock with SETNX + TTL."""
         r = await redis_client.get_redis()
-        lock_key = f"kb:{tenant_id}:lock:shard:{task_id}"
+        lock_key = f"shardflow:{user_id}:lock:shard:{task_id}"
         acquired = await r.setnx(lock_key, "1")
         if acquired:
             await r.expire(lock_key, self.LOCK_TTL)
         return bool(acquired)
 
-    async def release(self, tenant_id: str, task_id: str) -> None:
+    async def release(self, user_id: str, task_id: str) -> None:
         r = await redis_client.get_redis()
-        lock_key = f"kb:{tenant_id}:lock:shard:{task_id}"
+        lock_key = f"shardflow:{user_id}:lock:shard:{task_id}"
         await r.delete(lock_key)
 
-    async def get_version(self, tenant_id: str, task_id: str) -> int:
+    async def get_version(self, user_id: str, task_id: str) -> int:
         """Read current version (0 if key missing)."""
         r = await redis_client.get_redis()
-        version_key = f"kb:{tenant_id}:shard:{task_id}:version"
+        version_key = f"shardflow:{user_id}:shard:{task_id}:version"
         raw = await r.get(version_key)
         return int(raw) if raw else 0
 
-    async def cas_update(self, tenant_id: str, task_id: str,
+    async def cas_update(self, user_id: str, task_id: str,
                          expected_version: int, new_version: int) -> bool:
         """Atomically update version iff current == expected_version.
 
         Returns True on successful CAS, False on conflict.
         """
         r = await redis_client.get_redis()
-        version_key = f"kb:{tenant_id}:shard:{task_id}:version"
+        version_key = f"shardflow:{user_id}:shard:{task_id}:version"
         sha = await self._load_cas_script()
         result = await r.evalsha(sha, 1, version_key, str(expected_version), str(new_version))
         return result == 1
 
-    async def save_with_version_check(self, tenant_id: str, task_id: str,
+    async def save_with_version_check(self, user_id: str, task_id: str,
                                       shard_data: dict[str, Any]) -> dict[str, Any]:
         """Compare-And-Swap version increment for shard writes.
 
@@ -82,11 +82,11 @@ class OptimisticLock:
         """
         max_retries = 3
         for attempt in range(max_retries):
-            current = await self.get_version(tenant_id, task_id)
+            current = await self.get_version(user_id, task_id)
             new_version = current + 1
             shard_data["version"] = new_version
 
-            success = await self.cas_update(tenant_id, task_id, current, new_version)
+            success = await self.cas_update(user_id, task_id, current, new_version)
             if success:
                 return shard_data
 
@@ -96,7 +96,7 @@ class OptimisticLock:
 
         # Last resort: force-write version (pessimistic fallback)
         r = await redis_client.get_redis()
-        version_key = f"kb:{tenant_id}:shard:{task_id}:version"
+        version_key = f"shardflow:{user_id}:shard:{task_id}:version"
         new_version = await r.incr(version_key)
         await r.expire(version_key, self.VERSION_TTL)
         shard_data["version"] = new_version

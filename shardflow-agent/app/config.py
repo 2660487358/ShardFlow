@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     redis_url: str = "redis://localhost:6379/0"
-    java_base_url: str = "http://java-service:8080"
+    java_base_url: str = "http://java-service:8080"  # env: SHARDFLOW_JAVA_BASE_URL
     llm_api_key: str = ""
     llm_base_url: str = ""
     log_level: str = "INFO"

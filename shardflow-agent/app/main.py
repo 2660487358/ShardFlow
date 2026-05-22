@@ -22,8 +22,8 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="KnowledgeBridge Python Inference Layer",
-        description="Core reasoning engine for KnowledgeBridge - ReAct loop orchestration via LangGraph",
+        title="ShardFlow Python Inference Layer",
+        description="Core reasoning engine for ShardFlow - ReAct loop orchestration via LangGraph",
         version="0.1.0",
         lifespan=lifespan,
     )

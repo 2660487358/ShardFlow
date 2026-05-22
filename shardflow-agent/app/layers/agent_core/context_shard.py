@@ -4,7 +4,7 @@ from typing import Any
 from app.layers.agent_core.llm_router import llm_router
 from app.layers.agent_core.prompt_engine import prompt_engine
 from app.infrastructure.shard_cache import shard_cache
-from app.models.context_shard import ContextShard, ExplorationDepth, KeyDecision
+from app.models.context_shard import ContextShard, KeyDecision, PreferredDepth
 
 
 class ConflictInfo:
@@ -37,16 +37,16 @@ class ContextShardManager:
                 data = json.loads(content)
                 shard = ContextShard(
                     task_id=state.get("task_id", ""),
-                    tenant_id=state.get("tenant_id", ""),
+                    user_id=state.get("user_id", ""),
                     session_seq=state.get("loop_count", 1),
                     confirmed=data.get("confirmed", []),
                     excluded=data.get("excluded", []),
                     pending=data.get("pending", []),
                     source_preference=state.get("source_preferences", {}),
-                    exploration_depth=state.get("exploration_depth", ExplorationDepth.SERVICE_LEVEL),
+                    exploration_depth=state.get("exploration_depth", PreferredDepth.DETAIL),
                     key_decisions=[KeyDecision(**d) for d in data.get("key_decisions", [])],
                 )
-                await shard_cache.save_shard(state.get("tenant_id", ""), shard.model_dump())
+                await shard_cache.save_shard(state.get("user_id", ""), shard.model_dump())
                 return shard
             except Exception:
                 if attempt == 2:
@@ -151,7 +151,7 @@ class ContextShardManager:
 
         return ContextShard(
             task_id=current.task_id,
-            tenant_id=current.tenant_id,
+            user_id=current.user_id,
             session_seq=current.session_seq,
             confirmed=merged_confirmed,
             excluded=merged_excluded,

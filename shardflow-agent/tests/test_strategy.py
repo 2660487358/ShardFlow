@@ -7,7 +7,7 @@ from app.models.strategy import SourceCombo, StrategyRecord
 def _make_record(task_type: str = "microservice_auth_exploration",
                  success_score: float = 0.85) -> StrategyRecord:
     return StrategyRecord(
-        strategy_id="sr-001", tenant_id="t1", task_type=task_type,
+        strategy_id="sr-001", user_id="u1", task_type=task_type,
         query_pattern="explore auth",
         source_combo=[
             SourceCombo(source="code_comments", weight=0.5, reliability=0.9),

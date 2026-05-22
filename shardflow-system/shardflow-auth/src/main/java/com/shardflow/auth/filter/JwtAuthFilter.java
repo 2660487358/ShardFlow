@@ -1,7 +1,7 @@
 package com.shardflow.auth.filter;
 
 import com.shardflow.auth.service.JwtService;
-import com.shardflow.tenant.context.TenantContext;
+import com.shardflow.usercontext.context.UserContext;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -35,7 +35,7 @@ public class JwtAuthFilter implements Filter {
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 Map<String, String> claims = jwtService.validateToken(header.substring(7));
-                TenantContext.setTenantId(claims.get("tenant_id"));
+                UserContext.setUserId(claims.get("user_id"));
                 chain.doFilter(req, res);
                 return;
             } catch (Exception e) {

@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "kb_user")
+@Table(name = "shardflow_user")
 public class UserEntity {
 
     @Id
@@ -18,7 +18,7 @@ public class UserEntity {
     private String passwordHash;
 
     @Column(length = 64, nullable = false)
-    private String tenantId;
+    private String userId;
 
     @Column(length = 32, nullable = false)
     private String role = "USER";
@@ -37,8 +37,8 @@ public class UserEntity {
     public void setUsername(String username) { this.username = username; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
-    public String getTenantId() { return tenantId; }
-    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
     public boolean isEnabled() { return enabled; }

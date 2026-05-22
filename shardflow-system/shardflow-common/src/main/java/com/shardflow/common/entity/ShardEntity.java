@@ -4,15 +4,15 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "kb_shard")
+@Table(name = "shardflow_shard")
 public class ShardEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    @Column(name = "tenant_id", nullable = false, length = 64)
-    private String tenantId;
+    @Column(name = "user_id", nullable = false, length = 64)
+    private String userId;
 
     @Column(name = "task_id", nullable = false, length = 128)
     private String taskId;
@@ -20,12 +20,32 @@ public class ShardEntity {
     @Column(name = "session_seq", nullable = false)
     private int sessionSeq;
 
+    // --- New ContextShard fields (Phase 2) ---
+    @Column(name = "task_type", length = 50)
+    private String taskType;
+
+    @Column(name = "task_goal", columnDefinition = "text")
+    private String taskGoal;
+
+    @Column(name = "knowledge_state", columnDefinition = "jsonb")
+    private String knowledgeState;
+
+    @Column(name = "user_context", columnDefinition = "jsonb")
+    private String userContext;
+
+    @Column(name = "execution_state", columnDefinition = "jsonb")
+    private String executionState;
+
+    // --- Legacy fields (kept for backward compatibility) ---
+    @Deprecated
     @Column(columnDefinition = "jsonb", nullable = false)
     private String confirmed;
 
+    @Deprecated
     @Column(columnDefinition = "jsonb", nullable = false)
     private String excluded;
 
+    @Deprecated
     @Column(columnDefinition = "jsonb", nullable = false)
     private String pending;
 
@@ -56,13 +76,23 @@ public class ShardEntity {
     // Getters and setters
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getTenantId() { return tenantId; }
-    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
     public String getTaskId() { return taskId; }
     public void setTaskId(String taskId) { this.taskId = taskId; }
     public int getSessionSeq() { return sessionSeq; }
     public void setSessionSeq(int sessionSeq) { this.sessionSeq = sessionSeq; }
-    public String getConfirmed() { return confirmed; }
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
+    public String getTaskGoal() { return taskGoal; }
+    public void setTaskGoal(String taskGoal) { this.taskGoal = taskGoal; }
+    public String getKnowledgeState() { return knowledgeState; }
+    public void setKnowledgeState(String knowledgeState) { this.knowledgeState = knowledgeState; }
+    public String getUserContext() { return userContext; }
+    public void setUserContext(String userContext) { this.userContext = userContext; }
+    public String getExecutionState() { return executionState; }
+    public void setExecutionState(String executionState) { this.executionState = executionState; }
+    @Deprecated public String getConfirmed() { return confirmed; }
     public void setConfirmed(String confirmed) { this.confirmed = confirmed; }
     public String getExcluded() { return excluded; }
     public void setExcluded(String excluded) { this.excluded = excluded; }

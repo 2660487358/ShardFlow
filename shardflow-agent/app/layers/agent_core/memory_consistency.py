@@ -20,21 +20,21 @@ class MemoryConsistency:
 
     MAX_CAS_RETRIES = 3
 
-    async def write_with_cas(self, tenant_id: str, task_id: str,
+    async def write_with_cas(self, user_id: str, task_id: str,
                              shard_data: dict[str, Any]) -> dict[str, Any]:
         """Write shard with CAS version check via Redis Lua script.
 
         Returns the written shard_data with updated version on success.
         Raises ValueError if CAS fails after max retries (conflict).
         """
-        return await optimistic_lock.save_with_version_check(tenant_id, task_id, shard_data)
+        return await optimistic_lock.save_with_version_check(user_id, task_id, shard_data)
 
-    async def acquire_lock(self, tenant_id: str, task_id: str) -> bool:
+    async def acquire_lock(self, user_id: str, task_id: str) -> bool:
         """Acquire distributed lock before merging shards."""
-        return await optimistic_lock.acquire(tenant_id, task_id)
+        return await optimistic_lock.acquire(user_id, task_id)
 
-    async def release_lock(self, tenant_id: str, task_id: str) -> None:
-        await optimistic_lock.release(tenant_id, task_id)
+    async def release_lock(self, user_id: str, task_id: str) -> None:
+        await optimistic_lock.release(user_id, task_id)
 
     async def check_and_merge(self, current_data: dict[str, Any],
                               previous_data: dict[str, Any],
@@ -63,8 +63,8 @@ class MemoryConsistency:
         merged = context_shard_manager.merge_shard(current, previous, user_decision)
         return merged.model_dump()
 
-    async def get_version(self, tenant_id: str, task_id: str) -> int:
-        return await optimistic_lock.get_version(tenant_id, task_id)
+    async def get_version(self, user_id: str, task_id: str) -> int:
+        return await optimistic_lock.get_version(user_id, task_id)
 
 
 memory_consistency = MemoryConsistency()
