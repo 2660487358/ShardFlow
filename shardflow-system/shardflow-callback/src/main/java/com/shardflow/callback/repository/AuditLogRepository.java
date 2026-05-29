@@ -1,7 +1,9 @@
 package com.shardflow.callback.repository;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shardflow.common.entity.AuditLogEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.apache.ibatis.annotations.Mapper;
 
-public interface AuditLogRepository extends JpaRepository<AuditLogEntity, Long> {
+@Mapper
+public interface AuditLogRepository extends BaseMapper<AuditLogEntity> {
 }

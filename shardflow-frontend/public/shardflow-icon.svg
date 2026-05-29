@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="shardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c9a87c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#5a5348;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <path d="M24 4 L42 20 Q44 24 42 28 L24 44 Q20 46 16 44 L6 28 Q4 24 6 20 L16 4 Q20 2 24 4Z"
+        fill="none" stroke="url(#shardGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12 18 Q20 12 24 20 Q28 28 36 22"
+        fill="none" stroke="url(#shardGrad)" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <path d="M12 30 Q20 24 24 32 Q28 40 36 34"
+        fill="none" stroke="url(#shardGrad)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+  <circle cx="24" cy="24" r="2.5" fill="url(#shardGrad)" stroke="none"/>
+</svg>

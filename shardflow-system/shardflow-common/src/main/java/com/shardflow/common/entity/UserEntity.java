@@ -1,47 +1,33 @@
 package com.shardflow.common.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import java.time.Instant;
 
-@Entity
-@Table(name = "shardflow_user")
+@Data
+@NoArgsConstructor
+@TableName("shardflow_user")
 public class UserEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @TableId(type = IdType.ASSIGN_UUID)
     private String id;
 
-    @Column(unique = true, nullable = false, length = 128)
+    @TableField("username")
     private String username;
 
-    @Column(nullable = false, length = 256)
+    @TableField("password_hash")
     private String passwordHash;
 
-    @Column(length = 64, nullable = false)
+    @TableField("user_id")
     private String userId;
 
-    @Column(length = 32, nullable = false)
+    @TableField("role")
     private String role = "USER";
 
-    @Column(nullable = false)
+    @TableField("enabled")
     private boolean enabled = true;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt = Instant.now();
-
-    public UserEntity() {}
-
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-    public String getUsername() { return username; }
-    public void setUsername(String username) { this.username = username; }
-    public String getPasswordHash() { return passwordHash; }
-    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
-    public String getRole() { return role; }
-    public void setRole(String role) { this.role = role; }
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
-    public Instant getCreatedAt() { return createdAt; }
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
+    private Instant createdAt;
 }

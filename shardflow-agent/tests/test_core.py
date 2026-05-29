@@ -29,7 +29,7 @@ class TestPromptEngine:
 
     def test_build_intent_classify_prompt(self):
         result = prompt_engine.build_intent_classify_prompt("修复 NPE 异常")
-        assert "code_exploration" in result
+        assert "general_qa" in result
         assert "修复 NPE 异常" in result
 
     def test_all_templates_loadable(self):

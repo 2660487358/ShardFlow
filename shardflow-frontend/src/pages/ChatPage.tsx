@@ -14,10 +14,7 @@ export default function ChatPage() {
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
-      maxWidth: 720,
-      margin: '0 auto',
       width: '100%',
-      padding: '0 24px',
     }}>
       <ChatPanel onLoginRequired={onLoginRequired} isAuthenticated={isAuthenticated} />
     </div>

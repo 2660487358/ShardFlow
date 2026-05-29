@@ -1,10 +1,9 @@
 package com.shardflow.task.repository;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shardflow.common.entity.TaskSessionEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.List;
+import org.apache.ibatis.annotations.Mapper;
 
-public interface TaskSessionRepository extends JpaRepository<TaskSessionEntity, Long> {
-    List<TaskSessionEntity> findByTaskId(String taskId);
-    List<TaskSessionEntity> findByUserId(String userId);
+@Mapper
+public interface TaskSessionRepository extends BaseMapper<TaskSessionEntity> {
 }

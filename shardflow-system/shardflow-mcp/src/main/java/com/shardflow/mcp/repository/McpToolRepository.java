@@ -1,9 +1,9 @@
 package com.shardflow.mcp.repository;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shardflow.common.entity.McpToolEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.List;
+import org.apache.ibatis.annotations.Mapper;
 
-public interface McpToolRepository extends JpaRepository<McpToolEntity, String> {
-    List<McpToolEntity> findByStatus(String status);
+@Mapper
+public interface McpToolRepository extends BaseMapper<McpToolEntity> {
 }

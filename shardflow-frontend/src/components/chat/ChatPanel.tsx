@@ -1,9 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Typography, message } from 'antd';
-import { SendOutlined, ThunderboltOutlined, ApiOutlined } from '@ant-design/icons';
+import { Input, Button, Typography, message, Dropdown, Tooltip } from 'antd';
+import {
+  SendOutlined, PlusOutlined,
+  GlobalOutlined, EditOutlined,
+  FileAddOutlined,
+} from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { sendConversation } from '@/api/client';
 import { useStore } from '@/store';
+import ShardFlowLogo from '@/components/common/ShardFlowLogo';
 import type { ChatMessage, SSEEvent } from '@/types';
 
 const { TextArea } = Input;
@@ -14,14 +19,36 @@ interface Props {
   isAuthenticated: boolean;
 }
 
+const modelOptions = [
+  { key: 'sf-2.5', label: 'SF 2.5 模型' },
+  { key: 'sf-2.0', label: 'SF 2.0 模型' },
+  { key: 'sf-1.5', label: 'SF 1.5 模型' },
+];
+
 export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
   const { messages, addMessage, isStreaming, setStreaming, activeTaskId, activeSessionId } = useStore();
   const [input, setInput] = useState('');
+  const [selectedModel, setSelectedModel] = useState('sf-2.5');
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  const hasMessages = messages.length > 0;
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (plusMenuOpen && inputAreaRef.current && !inputAreaRef.current.contains(e.target as Node)) {
+        setPlusMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [plusMenuOpen]);
 
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
@@ -67,151 +94,447 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
 
   const extractContent = (type: string, data: Record<string, unknown>): string => {
     switch (type) {
-      case 'message': return `${data.content || ''}\n\n`;
-      case 'tool_call_start': return `**🔧 调用工具**: ${data.tool_name}\n\n`;
-      case 'tool_call_result': return `${data.success ? '✅' : '❌'} **${data.tool_name}** (${data.latency_ms}ms)\n${data.snippet || ''}\n\n`;
-      case 'strategy_found': return `**📋 策略**: ${data.decision} (相似度 ${data.similarity})\n\n`;
+      case 'think': return data.reasoning ? `${data.reasoning}\n\n` : `${data.content || ''}\n\n`;
+      case 'action': return `**🔧 调用工具**: ${data.tool || data.tool_name}\n\n`;
+      case 'observe': {
+        const success = data.success !== false;
+        const icon = success ? '✅' : '❌';
+        const toolName = data.tool || data.tool_name || 'unknown';
+        return `${icon} **${toolName}**${data.latency_ms ? ` (${data.latency_ms}ms)` : ''}\n${data.result || data.snippet || ''}\n\n`;
+      }
+      case 'strategy': return `**📋 策略**: ${data.decision}${data.similarity ? ` (相似度 ${Number(data.similarity).toFixed(2)})` : ''}\n\n`;
+      case 'done': return '';
+      case 'intent': case 'progress': case 'shard_trigger': case 'shard_result': case 'shard_resume': case 'heartbeat': return '';
       default: return '';
     }
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Messages */}
-      <div style={{ flex: 1, overflow: 'auto', paddingBottom: 16 }}>
-        {messages.length === 0 ? (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', minHeight: '60vh', textAlign: 'center',
-          }}>
-            <Title level={2} style={{ fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>
-              有什么我可以帮你的？
-            </Title>
-            <Text style={{ fontSize: 15, color: '#9ca3af', marginBottom: 32 }}>
-              ShardFlow 基于你的画像智能检索知识，提供个性化研究辅助
-            </Text>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div key={msg.id} style={{
-              display: 'flex',
-              justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-              marginBottom: 24,
-            }}>
-              {msg.role === 'user' ? (
-                <div style={{
-                  background: '#4e7dff',
-                  color: '#ffffff',
-                  borderRadius: '12px 12px 4px 12px',
-                  padding: '12px 16px',
-                  maxWidth: '85%',
-                  fontSize: 14,
-                  lineHeight: '22px',
-                  boxShadow: '0 1px 3px rgba(78,125,255,0.3)',
-                }}>
-                  {msg.content}
-                </div>
-              ) : msg.role === 'system' ? (
-                <Text type="danger" style={{ fontSize: 13 }}>{msg.content}</Text>
-              ) : (
-                <div style={{
-                  background: 'transparent',
-                  color: '#1a1a2e',
-                  fontSize: 15,
-                  lineHeight: '26px',
-                  maxWidth: '100%',
-                }}>
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              )}
-            </div>
-          ))
-        )}
-        <div ref={messagesEnd} />
-      </div>
+  const currentModelLabel = modelOptions.find(m => m.key === selectedModel)?.label || 'SF 2.5 模型';
 
-      {/* Input */}
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      position: 'relative',
+    }}>
       <div style={{
-        padding: '16px 0 24px',
-        borderTop: messages.length > 0 ? 'none' : 'none',
+        flex: 1,
+        overflow: 'auto',
+        paddingBottom: 16,
+        display: 'flex',
+        flexDirection: 'column',
       }}>
-        <div style={{
-          background: '#ffffff',
-          border: `1px solid ${isAuthenticated ? '#e5e7eb' : '#e5e7eb'}`,
-          borderRadius: 16,
-          padding: '8px 8px 8px 20px',
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: 8,
-          boxShadow: isAuthenticated ? '0 0 0 0 rgba(78,125,255,0)' : 'none',
-          transition: 'box-shadow 250ms, border-color 250ms',
-          cursor: isAuthenticated ? 'text' : 'pointer',
-          opacity: isAuthenticated ? 1 : 0.6,
-        }}
-        onClick={() => { if (!isAuthenticated) onLoginRequired(); }}
-        >
-          <TextArea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder={isAuthenticated ? '输入你的问题...' : '登录后开始对话'}
-            autoSize={{ minRows: 1, maxRows: 6 }}
-            disabled={!isAuthenticated || isStreaming}
-            style={{
-              border: 'none',
-              boxShadow: 'none',
-              background: 'transparent',
-              resize: 'none',
-              fontSize: 15,
-              lineHeight: '24px',
-              padding: '4px 0',
-              flex: 1,
-            }}
-          />
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={(e) => {
-              if (!isAuthenticated) { e.stopPropagation(); onLoginRequired(); return; }
-              handleSend();
-            }}
-            loading={isStreaming}
-            style={{
-              height: 40,
-              width: 40,
-              borderRadius: 12,
-              background: (!isAuthenticated || !input.trim()) ? '#d1d5db' : '#4e7dff',
-              border: 'none',
+        {!hasMessages ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flex: 1,
+            textAlign: 'center',
+            paddingBottom: 120,
+          }}>
+            <div style={{
+              width: 56,
+              height: 56,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          />
+              marginBottom: 24,
+            }}>
+              <ShardFlowLogo size={56} />
+            </div>
+            <h1 className="cn-title" style={{
+              fontWeight: 600,
+              color: 'var(--ink)',
+              marginBottom: 12,
+              letterSpacing: '0.05em',
+              fontSize: 40,
+            }}>
+              ShardFlow
+            </h1>
+            <p className="cn-tag" style={{ fontSize: 14, marginBottom: 32 }}>
+              你的专属助理
+            </p>
+          </div>
+        ) : (
+          <div style={{
+            maxWidth: 720,
+            margin: '0 auto',
+            width: '100%',
+            padding: '24px 24px 0',
+            flex: 1,
+          }}>
+            {messages.map((msg) => (
+              <div key={msg.id} className="message-enter" style={{
+                display: 'flex',
+                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                marginBottom: 24,
+              }}>
+                {msg.role === 'user' ? (
+                  <div style={{
+                    background: 'var(--ink)',
+                    color: 'var(--paper)',
+                    borderRadius: '16px 16px 4px 16px',
+                    padding: '12px 18px',
+                    maxWidth: '80%',
+                    fontSize: 14,
+                    lineHeight: '1.9',
+                    letterSpacing: '0.02em',
+                    fontFamily: 'var(--font-serif)',
+                  }}>
+                    {msg.content}
+                  </div>
+                ) : msg.role === 'system' ? (
+                  <Text type="danger" style={{ fontSize: 13 }}>{msg.content}</Text>
+                ) : (
+                  <div style={{
+                    background: 'rgba(255,255,255,0.6)',
+                    border: '1px solid var(--paper-dark)',
+                    borderRadius: '16px 4px 16px 16px',
+                    padding: '16px 20px',
+                    color: 'var(--ink-soft)',
+                    fontSize: 15,
+                    lineHeight: '1.9',
+                    maxWidth: '100%',
+                    letterSpacing: '0.02em',
+                    position: 'relative',
+                    transition: 'all 0.3s ease',
+                  }}>
+                    <div style={{
+                      position: 'absolute',
+                      bottom: -3,
+                      left: '2%',
+                      right: '2%',
+                      height: 3,
+                      background: 'var(--paper-dark)',
+                      borderRadius: '0 0 4px 4px',
+                      opacity: 0.3,
+                    }} />
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
+            ))}
+            {isStreaming && (
+              <div className="message-enter" style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                <div style={{ flexShrink: 0 }}>
+                  <div style={{
+                    width: 36,
+                    height: 36,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <ShardFlowLogo size={36} />
+                  </div>
+                </div>
+                <div style={{
+                  background: 'rgba(255,255,255,0.6)',
+                  border: '1px solid var(--paper-dark)',
+                  borderRadius: '16px 4px 16px 16px',
+                  padding: '14px 20px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 12,
+                }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                  </div>
+                  <span className="cn-tag" style={{ fontSize: 13 }}>正在思考...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEnd} />
+          </div>
+        )}
+      </div>
+
+      <div style={{
+        padding: '0 24px 32px',
+      }}>
+        <div
+          ref={inputAreaRef}
+          style={{
+            maxWidth: 720,
+            margin: '0 auto',
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {plusMenuOpen && (
+            <div style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: 0,
+              marginBottom: 8,
+              background: 'rgba(255,255,255,0.95)',
+              border: '1px solid var(--paper-dark)',
+              borderRadius: 12,
+              padding: '8px 6px',
+              boxShadow: '0 4px 20px var(--shadow)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              minWidth: 180,
+              zIndex: 10,
+              animation: 'sketchIn 0.2s ease forwards',
+            }}>
+              <button
+                className="cn-sans"
+                onClick={() => {
+                  setPlusMenuOpen(false);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--ink-soft)',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  letterSpacing: '0.04em',
+                  transition: 'all 0.2s ease',
+                  width: '100%',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.6)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                }}
+              >
+                <FileAddOutlined style={{ fontSize: 16, color: 'var(--accent-warm)' }} />
+                添加文件
+              </button>
+              <button
+                className="cn-sans"
+                onClick={() => {
+                  setWebSearchEnabled(!webSearchEnabled);
+                  setPlusMenuOpen(false);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: webSearchEnabled ? 'rgba(201,168,124,0.1)' : 'transparent',
+                  color: webSearchEnabled ? 'var(--accent-warm)' : 'var(--ink-soft)',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  letterSpacing: '0.04em',
+                  transition: 'all 0.2s ease',
+                  width: '100%',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => {
+                  if (!webSearchEnabled) {
+                    (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.6)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--ink)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!webSearchEnabled) {
+                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                  }
+                }}
+              >
+                <GlobalOutlined style={{ fontSize: 16, color: webSearchEnabled ? 'var(--accent-warm)' : 'var(--ink-faint)' }} />
+                {webSearchEnabled ? '联网搜索已开启' : '开启联网搜索'}
+              </button>
+            </div>
+          )}
+
+          <div style={{
+            background: 'rgba(255,255,255,0.5)',
+            border: '1px solid var(--paper-dark)',
+            borderRadius: 20,
+            padding: '8px 12px',
+            width: '100%',
+            transition: 'all 0.4s ease',
+            position: 'relative',
+          }}
+          onFocus={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.8)';
+            (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)';
+            (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 24px var(--shadow)';
+          }}
+          onBlur={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.5)';
+            (e.currentTarget as HTMLElement).style.borderColor = 'var(--paper-dark)';
+            (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+          }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+              <Button
+                type="text"
+                icon={<PlusOutlined />}
+                onClick={() => setPlusMenuOpen(!plusMenuOpen)}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  color: plusMenuOpen ? 'var(--accent-warm)' : 'var(--ink-faint)',
+                  fontSize: 16,
+                  transition: 'color 0.2s ease',
+                }}
+              />
+
+              <TextArea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                placeholder={isAuthenticated ? '输入你的问题...' : '登录后开始对话'}
+                autoSize={{ minRows: 1, maxRows: 5 }}
+                disabled={!isAuthenticated || isStreaming}
+                style={{
+                  border: 'none',
+                  boxShadow: 'none',
+                  background: 'transparent',
+                  resize: 'none',
+                  fontSize: 16,
+                  lineHeight: '28px',
+                  padding: '4px 0',
+                  flex: 1,
+                  fontFamily: 'var(--font-serif)',
+                  letterSpacing: '0.02em',
+                  color: 'var(--ink)',
+                }}
+              />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {webSearchEnabled && (
+                  <Tooltip title="联网搜索已开启，点击关闭" placement="top">
+                    <button
+                      onClick={() => setWebSearchEnabled(false)}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        fontSize: 16,
+                        border: '1px solid var(--accent)',
+                        background: 'rgba(201,168,124,0.1)',
+                        color: 'var(--accent-warm)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <GlobalOutlined />
+                    </button>
+                  </Tooltip>
+                )}
+
+                <Dropdown
+                  menu={{
+                    items: modelOptions.map(m => ({
+                      key: m.key,
+                      label: m.label,
+                      onClick: () => setSelectedModel(m.key),
+                    })),
+                    selectedKeys: [selectedModel],
+                  }}
+                  trigger={['click']}
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '4px 8px',
+                      borderRadius: 8,
+                      color: 'var(--ink-faint)',
+                      fontSize: 13,
+                      height: 30,
+                      fontFamily: 'var(--font-sans)',
+                    }}
+                  >
+                    {currentModelLabel}
+                  </Button>
+                </Dropdown>
+
+                <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
+                  <Button
+                    type="text"
+                    icon={<EditOutlined />}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      color: 'var(--ink-faint)',
+                      fontSize: 16,
+                    }}
+                  />
+                </Tooltip>
+
+                {input.trim() && isAuthenticated && (
+                  <button
+                    onClick={handleSend}
+                    disabled={isStreaming}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 10,
+                      background: 'var(--ink)',
+                      color: 'var(--paper)',
+                      border: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      cursor: isStreaming ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.3s ease',
+                      fontFamily: 'var(--font-sans)',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isStreaming) {
+                        (e.currentTarget as HTMLElement).style.background = 'var(--ink-soft)';
+                        (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
+                        (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(42,37,32,0.15)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
+                      (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                      (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                    }}
+                  >
+                    <SendOutlined style={{ fontSize: 16 }} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Quick actions */}
-        <div style={{
-          display: 'flex', gap: 8, marginTop: 12,
-          justifyContent: 'center',
-        }}>
-          <Button
-            type="text"
-            icon={<ThunderboltOutlined />}
-            onClick={() => { if (!isAuthenticated) { onLoginRequired(); return; } }}
-            style={{ color: '#9ca3af', fontSize: 13, borderRadius: 8 }}
-          >
-            Skill 市场
-          </Button>
-          <Button
-            type="text"
-            icon={<ApiOutlined />}
-            onClick={() => { if (!isAuthenticated) { onLoginRequired(); return; } }}
-            style={{ color: '#9ca3af', fontSize: 13, borderRadius: 8 }}
-          >
-            接入 MCP
-          </Button>
-        </div>
+        <p className="cn-tag" style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-muted)', marginTop: 12 }}>
+          AI 助手可能会产生不准确的信息，请核实重要信息。
+        </p>
       </div>
     </div>
   );

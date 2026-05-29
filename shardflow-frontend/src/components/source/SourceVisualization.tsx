@@ -15,12 +15,12 @@ const sourceIconMap: Record<string, React.ReactNode> = {
 };
 
 const sourceColorMap: Record<string, string> = {
-  search_code: 'blue',
-  read_file: 'geekblue',
-  query_source: 'purple',
-  code_comments: 'blue',
-  official_docs: 'green',
-  github: 'orange',
+  search_code: 'default',
+  read_file: 'default',
+  query_source: 'default',
+  code_comments: 'default',
+  official_docs: 'default',
+  github: 'default',
 };
 
 export default function SourceVisualization() {
@@ -48,12 +48,19 @@ export default function SourceVisualization() {
 
   if (sources.length === 0) {
     return (
-      <Card title="信息来源" size="small">
-        <Empty description="推理完成后显示多路召回来源">
+      <Card
+        title={<span className="cn-title" style={{ letterSpacing: '0.05em', color: 'var(--ink)' }}>信息来源</span>}
+        size="small"
+        style={{
+          background: 'rgba(255,255,255,0.6)',
+          border: '1px solid var(--paper-dark)',
+        }}
+      >
+        <Empty description={<span className="cn-tag">推理完成后显示多路召回来源</span>}>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 8, flexWrap: 'wrap' }}>
-            <Tag icon={<CodeOutlined />} color="blue">代码注释</Tag>
-            <Tag icon={<BookOutlined />} color="green">官方文档</Tag>
-            <Tag icon={<GithubOutlined />} color="orange">GitHub</Tag>
+            <Tag icon={<CodeOutlined />}>代码注释</Tag>
+            <Tag icon={<BookOutlined />}>官方文档</Tag>
+            <Tag icon={<GithubOutlined />}>GitHub</Tag>
           </div>
         </Empty>
       </Card>
@@ -61,14 +68,21 @@ export default function SourceVisualization() {
   }
 
   return (
-    <Card title="信息来源" size="small">
+    <Card
+      title={<span className="cn-title" style={{ letterSpacing: '0.05em', color: 'var(--ink)' }}>信息来源</span>}
+      size="small"
+      style={{
+        background: 'rgba(255,255,255,0.6)',
+        border: '1px solid var(--paper-dark)',
+      }}
+    >
       <List size="small" dataSource={sources}
         renderItem={(item) => (
           <List.Item>
             <Tag icon={sourceIconMap[item.tool] || <CodeOutlined />} color={sourceColorMap[item.tool] || 'default'}>
               {item.tool}
             </Tag>
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Text className="cn-tag" style={{ fontSize: 12 }}>
               {String(item.params.query || item.params.path || item.params.source_type || JSON.stringify(item.params))}
             </Text>
           </List.Item>

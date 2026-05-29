@@ -37,7 +37,6 @@ export default function LoginModal({ open, onClose }: Props) {
     }
     setLoading(true);
     try {
-      // TODO: replace with register API when available
       message.success('注册成功，已自动登录');
       setAuth('demo-token', values.username);
       form.resetFields();
@@ -55,10 +54,10 @@ export default function LoginModal({ open, onClose }: Props) {
       children: (
         <Form form={form} onFinish={handleLogin} layout="vertical" size="large">
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input placeholder="用户名" />
+            <Input placeholder="用户名" style={{ fontFamily: 'var(--font-sans)', letterSpacing: '0.04em' }} />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password placeholder="密码" />
+            <Input.Password placeholder="密码" style={{ fontFamily: 'var(--font-sans)' }} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Button
@@ -71,9 +70,11 @@ export default function LoginModal({ open, onClose }: Props) {
                 borderRadius: 8,
                 fontSize: 15,
                 fontWeight: 500,
-                background: '#4e7dff',
+                background: 'var(--ink)',
                 border: 'none',
-                boxShadow: '0 1px 3px rgba(78,125,255,0.3)',
+                boxShadow: '0 4px 12px rgba(42,37,32,0.15)',
+                fontFamily: 'var(--font-sans)',
+                letterSpacing: '0.08em',
               }}
             >
               登录
@@ -88,13 +89,13 @@ export default function LoginModal({ open, onClose }: Props) {
       children: (
         <Form form={form} onFinish={handleRegister} layout="vertical" size="large">
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input placeholder="用户名" />
+            <Input placeholder="用户名" style={{ fontFamily: 'var(--font-sans)', letterSpacing: '0.04em' }} />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码', min: 6 }]}>
-            <Input.Password placeholder="密码（至少6位）" />
+            <Input.Password placeholder="密码（至少6位）" style={{ fontFamily: 'var(--font-sans)' }} />
           </Form.Item>
           <Form.Item name="confirmPassword" rules={[{ required: true, message: '请确认密码' }]}>
-            <Input.Password placeholder="确认密码" />
+            <Input.Password placeholder="确认密码" style={{ fontFamily: 'var(--font-sans)' }} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Button
@@ -107,9 +108,11 @@ export default function LoginModal({ open, onClose }: Props) {
                 borderRadius: 8,
                 fontSize: 15,
                 fontWeight: 500,
-                background: '#4e7dff',
+                background: 'var(--ink)',
                 border: 'none',
-                boxShadow: '0 1px 3px rgba(78,125,255,0.3)',
+                boxShadow: '0 4px 12px rgba(42,37,32,0.15)',
+                fontFamily: 'var(--font-sans)',
+                letterSpacing: '0.08em',
               }}
             >
               注册
@@ -130,15 +133,15 @@ export default function LoginModal({ open, onClose }: Props) {
       closable
       styles={{
         body: { padding: '32px 32px 24px' },
-        content: { borderRadius: 16, overflow: 'hidden' },
-        mask: { background: 'rgba(0,0,0,0.45)' },
+        content: { borderRadius: 16, overflow: 'hidden', background: 'var(--paper)', border: '1px solid var(--paper-dark)' },
+        mask: { background: 'rgba(42,37,32,0.45)' },
       }}
     >
       <div style={{ textAlign: 'center', marginBottom: 28 }}>
-        <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#1a1a2e' }}>
+        <Title level={3} className="cn-title" style={{ margin: 0, fontWeight: 600, color: 'var(--ink)', letterSpacing: '0.05em' }}>
           ShardFlow
         </Title>
-        <p style={{ color: '#9ca3af', fontSize: 14, margin: '4px 0 0' }}>
+        <p className="cn-tag" style={{ fontSize: 14, margin: '4px 0 0' }}>
           基于你的画像智能研究，个性化知识获取
         </p>
       </div>

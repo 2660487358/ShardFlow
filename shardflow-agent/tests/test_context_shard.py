@@ -1,6 +1,6 @@
 ﻿from app.layers.agent_core.context_shard import context_shard_manager
 from app.layers.agent_core.shard_decision import shard_decision_gate
-from app.models.context_shard import ContextShard, ExplorationDepth, KeyDecision
+from app.models.context_shard import ContextShard, PreferredDepth, KeyDecision
 
 
 def _make_shard(task_id: str = "u1", confirmed: list | None = None,
@@ -12,7 +12,7 @@ def _make_shard(task_id: str = "u1", confirmed: list | None = None,
         excluded=excluded or [],
         pending=pending or [],
         source_preference={"code": 0.9},
-        exploration_depth=ExplorationDepth.SERVICE_LEVEL,
+        exploration_depth=PreferredDepth.DETAIL,
         key_decisions=key_decisions or [],
     )
 
@@ -37,17 +37,17 @@ class TestShardDecisionGate:
         budget = shard_decision_gate.token_budget({"token_count": 1000})
         assert budget > 0
 
-    def test_depth_advisor_service_level(self):
+    def test_depth_advisor_overview(self):
         depth = shard_decision_gate.depth_advisor({"pending": ["a"]})
-        assert depth == "SERVICE_LEVEL"
+        assert depth == "OVERVIEW"
 
-    def test_depth_advisor_method_level(self):
+    def test_depth_advisor_detail(self):
         depth = shard_decision_gate.depth_advisor({"pending": ["a", "b", "c", "d"]})
-        assert depth == "METHOD_LEVEL"
+        assert depth == "DETAIL"
 
-    def test_depth_advisor_line_level(self):
+    def test_depth_advisor_deep_dive(self):
         depth = shard_decision_gate.depth_advisor({"pending": ["a"] * 7})
-        assert depth == "LINE_LEVEL"
+        assert depth == "DEEP_DIVE"
 
 
 class TestContextShardManager:

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, Task, ShardData, StrategyRecord, UserProfile } from '@/types';
+import type { ChatMessage, Task, ContextShard, StrategyRecord, UserProfile } from '@/types';
 
 interface McpTool {
   tool_id: string;
@@ -35,8 +35,8 @@ interface AppState {
   setActiveTask: (taskId: string, sessionId?: string) => void;
 
   // Shard
-  currentShard: ShardData | null;
-  setShard: (shard: ShardData | null) => void;
+  currentShard: ContextShard | null;
+  setShard: (shard: ContextShard | null) => void;
 
   // Strategies
   strategies: StrategyRecord[];

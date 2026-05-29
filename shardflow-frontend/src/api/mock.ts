@@ -1,4 +1,4 @@
-import type { Task, ShardData, StrategyRecord, SSEEvent } from '@/types';
+import type { Task, ContextShard, StrategyRecord, SSEEvent } from '@/types';
 
 export const mockTasks: Task[] = [
   {
@@ -24,22 +24,35 @@ export const mockTasks: Task[] = [
   },
 ];
 
-export const mockShard: ShardData = {
+export const mockShard: ContextShard = {
   task_id: 'task-demo-001',
   user_id: 'default',
-  session_seq: 1,
-  confirmed: [
-    { fact: 'Dubbo 使用 Zookeeper 作为注册中心', confidence: 0.95, evidence: ['RegistryConfig.java', 'dubbo-registry-zookeeper'] },
-    { fact: '服务注册通过 RegistryProtocol.export() 触发', confidence: 0.88, evidence: ['RegistryProtocol.java:L145'] },
-  ],
-  excluded: [
-    { hypothesis: '使用 Nacos 作为注册中心', reason: '配置文件明确指定 zookeeper:// 协议' },
-  ],
-  pending: ['确认集群模式下的注册行为', '分析服务下线通知机制'],
-  exploration_depth: 'shallow',
-  key_decisions: [
-    { decision: '优先分析 Zookeeper 注册路径', reason: '配置文件明确使用 Zookeeper', confidence: 0.9 },
-  ],
+  task_type: 'code_exploration',
+  task_goal: '理清 Dubbo 注册链路',
+  knowledge_state: {
+    confirmed: [
+      { fact: 'Dubbo 使用 Zookeeper 作为注册中心', confidence: 0.95, evidence: ['RegistryConfig.java', 'dubbo-registry-zookeeper'] },
+      { fact: '服务注册通过 RegistryProtocol.export() 触发', confidence: 0.88, evidence: ['RegistryProtocol.java:L145'] },
+    ],
+    excluded: [
+      { hypothesis: '使用 Nacos 作为注册中心', reason: '配置文件明确指定 zookeeper:// 协议' },
+    ],
+    pending: ['确认集群模式下的注册行为', '分析服务下线通知机制'],
+    key_decisions: [
+      { decision: '优先分析 Zookeeper 注册路径', reason: '配置文件明确使用 Zookeeper', confidence: 0.9 },
+    ],
+  },
+  user_context: {
+    expertise_level: 'intermediate',
+    preferred_depth: 'OVERVIEW',
+    communication_style: 'technical',
+  },
+  execution_state: {
+    progress: 50,
+    completed_steps: ['识别注册中心类型', '定位 RegistryProtocol'],
+    tools_used: ['search_code', 'read_file'],
+  },
+  source_preference: { web_search: 0.8, code_analysis: 0.9 },
   version: 1,
   status: 'SHARDED',
 };

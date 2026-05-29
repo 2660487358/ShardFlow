@@ -9,10 +9,10 @@ export interface ConversationRequest {
 }
 
 export interface SSEEvent {
-  type: 'profile_applied' | 'message' | 'tool_call_start' | 'tool_call_result'
-    | 'strategy_found' | 'done' | 'error'
-    // Legacy mock types
-    | 'intent' | 'think' | 'action' | 'observe' | 'shard_trigger' | 'shard_result' | 'strategy' | 'progress';
+  type: 'intent' | 'think' | 'action' | 'observe' | 'progress'
+    | 'shard_trigger' | 'shard_result' | 'strategy'
+    | 'profile_applied' | 'shard_resume' | 'done' | 'error'
+    | 'heartbeat';
   data: Record<string, unknown>;
 }
 
@@ -79,19 +79,6 @@ export interface UserProfile {
     avg_session_duration_min: number;
   };
   updated_at: string;
-}
-
-export interface ShardData {
-  task_id: string;
-  user_id: string;
-  session_seq: number;
-  confirmed: Array<{ fact: string; confidence: number; evidence?: string[] }>;
-  excluded: Array<{ hypothesis: string; reason: string }>;
-  pending: string[];
-  exploration_depth: string;
-  key_decisions: Array<{ decision: string; reason: string; confidence: number }>;
-  version: number;
-  status: string;
 }
 
 export interface StrategyRecord {

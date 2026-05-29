@@ -1,9 +1,10 @@
 package com.shardflow.mcp.controller;
 
+import com.shardflow.common.dto.Result;
 import com.shardflow.common.entity.McpToolEntity;
 import com.shardflow.mcp.service.McpToolService;
 import jakarta.validation.Valid;
-import org.springframework.http.ResponseEntity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -11,52 +12,48 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/mcp/registry")
+@RequiredArgsConstructor
 public class McpToolController {
 
     private final McpToolService service;
 
-    public McpToolController(McpToolService service) {
-        this.service = service;
-    }
-
     @GetMapping("/tools")
-    public ResponseEntity<Map<String, Object>> listTools(@RequestParam(required = false) String status) {
+    public Result<Map<String, Object>> listTools(@RequestParam(required = false) String status) {
         List<McpToolEntity> tools = service.listTools(status);
-        return ResponseEntity.ok(Map.of("tools", tools, "total", tools.size()));
+        return Result.ok(Map.of("tools", tools, "total", tools.size()));
     }
 
     @GetMapping("/tools/{toolId}")
-    public ResponseEntity<McpToolEntity> getTool(@PathVariable String toolId) {
+    public Result<?> getTool(@PathVariable String toolId) {
         return service.getTool(toolId)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .map(Result::ok)
+            .orElse(Result.fail(404, "Tool not found"));
     }
 
     @PostMapping("/tools")
-    public ResponseEntity<Map<String, Object>> registerTool(@Valid @RequestBody McpToolEntity tool) {
+    public Result<Map<String, Object>> registerTool(@Valid @RequestBody McpToolEntity tool) {
         McpToolEntity saved = service.registerTool(tool);
-        return ResponseEntity.status(201).body(Map.of("tool_id", saved.getToolId(), "status", saved.getStatus()));
+        return Result.ok(Map.of("tool_id", saved.getToolId(), "status", saved.getStatus()));
     }
 
     @PutMapping("/tools/{toolId}")
-    public ResponseEntity<McpToolEntity> updateTool(@PathVariable String toolId,
-                                                     @RequestBody McpToolEntity updates) {
+    public Result<?> updateTool(@PathVariable String toolId, @RequestBody McpToolEntity updates) {
         return service.updateTool(toolId, updates)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .map(Result::ok)
+            .orElse(Result.fail(404, "Tool not found"));
     }
 
     @DeleteMapping("/tools/{toolId}")
-    public ResponseEntity<Map<String, Object>> deleteTool(@PathVariable String toolId) {
+    public Result<?> deleteTool(@PathVariable String toolId) {
         boolean deleted = service.deleteTool(toolId);
         if (deleted) {
-            return ResponseEntity.ok(Map.of("status", "INACTIVE"));
+            return Result.ok(Map.of("status", "INACTIVE"));
         }
-        return ResponseEntity.notFound().build();
+        return Result.fail(404, "Tool not found");
     }
 
     @GetMapping("/health")
-    public ResponseEntity<Map<String, Object>> healthCheck() {
-        return ResponseEntity.ok(Map.of("tools", service.healthCheck()));
+    public Result<Map<String, Object>> healthCheck() {
+        return Result.ok(Map.of("tools", service.healthCheck()));
     }
 }

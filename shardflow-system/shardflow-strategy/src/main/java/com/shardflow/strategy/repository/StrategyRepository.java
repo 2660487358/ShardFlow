@@ -1,25 +1,21 @@
 package com.shardflow.strategy.repository;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shardflow.common.entity.StrategyEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
-@Repository
-public interface StrategyRepository extends JpaRepository<StrategyEntity, String> {
-    List<StrategyEntity> findByTaskTypeOrderBySuccessScoreDesc(String taskType);
+@Mapper
+public interface StrategyRepository extends BaseMapper<StrategyEntity> {
 
-    List<StrategyEntity> findByUserIdAndTaskType(String userId, String taskType);
-
-    @Query(value = "SELECT *, 1 - (embedding_v2 <=> CAST(:queryVector AS vector)) AS similarity " +
-           "FROM shardflow_strategy " +
-           "WHERE user_id = :userId AND embedding_v2 IS NOT NULL " +
-           "ORDER BY embedding_v2 <=> CAST(:queryVector AS vector) " +
-           "LIMIT :limit", nativeQuery = true)
+    @Select("SELECT *, 1 - (embedding <=> CAST(#{queryVector} AS vector)) AS similarity " +
+            "FROM shardflow_strategy " +
+            "WHERE embedding IS NOT NULL " +
+            "ORDER BY embedding <=> CAST(#{queryVector} AS vector) " +
+            "LIMIT #{limit}")
     List<Object[]> searchSimilar(@Param("queryVector") String queryVector,
-                                 @Param("userId") String userId,
                                  @Param("limit") int limit);
 }

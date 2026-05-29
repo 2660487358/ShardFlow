@@ -11,19 +11,36 @@ export default function ProfilePage() {
 
   if (!isAuthenticated) {
     return (
-      <Result
-        icon={<span style={{ fontSize: 48 }}>🔒</span>}
-        title="需要登录"
-        subTitle="登录后查看和编辑画像"
-        extra={<Button type="primary" onClick={onLoginRequired} style={{ background: '#4e7dff' }}>登录</Button>}
-      />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+        <Result
+          icon={<span style={{ fontSize: 48, opacity: 0.6 }}>👤</span>}
+          title={<span className="cn-title" style={{ color: 'var(--ink)', letterSpacing: '0.05em' }}>需要登录</span>}
+          subTitle={<span className="cn-tag">登录后查看和编辑画像</span>}
+          extra={
+            <Button
+              type="primary"
+              onClick={onLoginRequired}
+              style={{
+                background: 'var(--ink)',
+                border: 'none',
+                boxShadow: '0 4px 12px rgba(42,37,32,0.15)',
+                fontFamily: 'var(--font-sans)',
+                letterSpacing: '0.08em',
+              }}
+            >
+              登录
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
   return (
-    <div>
-      <h2 style={{ fontWeight: 600, color: '#1a1a2e' }}>我的画像</h2>
-      <p style={{ color: '#9ca3af' }}>画像数据加载中...</p>
+    <div style={{ padding: 32 }}>
+      <h2 className="cn-title" style={{ fontWeight: 600, color: 'var(--ink)', letterSpacing: '0.05em' }}>我的画像</h2>
+      <div className="hand-line" style={{ margin: '12px 0 24px', maxWidth: 200 }} />
+      <p className="cn-tag">画像数据加载中...</p>
     </div>
   );
 }

@@ -1,7 +1,9 @@
 package com.shardflow.profile.repository;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shardflow.common.entity.ProfileEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.apache.ibatis.annotations.Mapper;
 
-public interface ProfileRepository extends JpaRepository<ProfileEntity, String> {
+@Mapper
+public interface ProfileRepository extends BaseMapper<ProfileEntity> {
 }

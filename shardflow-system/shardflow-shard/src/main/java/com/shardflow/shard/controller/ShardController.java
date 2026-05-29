@@ -1,28 +1,26 @@
 package com.shardflow.shard.controller;
 
+import com.shardflow.common.dto.Result;
 import com.shardflow.shard.service.ShardService;
-import org.springframework.http.ResponseEntity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/shards")
+@RequiredArgsConstructor
 public class ShardController {
 
     private final ShardService shardService;
 
-    public ShardController(ShardService shardService) { this.shardService = shardService; }
-
     @GetMapping("/{taskId}")
-    public ResponseEntity<Map<String, Object>> getLatest(@PathVariable String taskId) {
+    public Result<?> getLatest(@PathVariable String taskId) {
         return shardService.findByTaskId(taskId)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .map(Result::ok)
+            .orElse(Result.fail(404, "Shard not found"));
     }
 
     @GetMapping("/{taskId}/history")
-    public ResponseEntity<Object> getHistory(@PathVariable String taskId) {
-        return ResponseEntity.ok(shardService.findHistory(taskId));
+    public Result<?> getHistory(@PathVariable String taskId) {
+        return Result.ok(shardService.findHistory(taskId));
     }
 }

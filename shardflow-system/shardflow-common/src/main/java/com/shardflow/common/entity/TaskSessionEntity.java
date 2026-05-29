@@ -1,48 +1,33 @@
 package com.shardflow.common.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import java.time.Instant;
 
-@Entity
-@Table(name = "shardflow_task_session")
+@Data
+@NoArgsConstructor
+@TableName("shardflow_task_session")
 public class TaskSessionEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "task_id", nullable = false, length = 128)
+    @TableField("task_id")
     private String taskId;
 
-    @Column(name = "user_id", nullable = false, length = 64)
+    @TableField("user_id")
     private String userId;
 
-    @Column(name = "session_seq", nullable = false)
+    @TableField("session_seq")
     private int sessionSeq;
 
-    @Column(name = "source_port", length = 16)
+    @TableField("source_port")
     private String sourcePort;
 
-    @Column(length = 16, nullable = false)
+    @TableField("status")
     private String status = "ACTIVE";
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt = Instant.now();
-
-    public TaskSessionEntity() {}
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getTaskId() { return taskId; }
-    public void setTaskId(String taskId) { this.taskId = taskId; }
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
-    public int getSessionSeq() { return sessionSeq; }
-    public void setSessionSeq(int sessionSeq) { this.sessionSeq = sessionSeq; }
-    public String getSourcePort() { return sourcePort; }
-    public void setSourcePort(String sourcePort) { this.sourcePort = sourcePort; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
+    private Instant createdAt;
 }

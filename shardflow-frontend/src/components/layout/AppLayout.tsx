@@ -2,21 +2,28 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Dropdown, Avatar, Typography, Tooltip } from 'antd';
 import {
-  MessageOutlined, HistoryOutlined, ToolOutlined, UserOutlined,
+  MessageOutlined, HistoryOutlined, UserOutlined,
   LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
-  ThunderboltOutlined, ApiOutlined, LoginOutlined,
+  ThunderboltOutlined, ApiOutlined,
+  RobotOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import { useStore } from '@/store';
 import LoginModal from '@/components/auth/LoginModal';
+import ShardFlowLogo from '@/components/common/ShardFlowLogo';
 
 const { Text } = Typography;
 
 const SIDEBAR_WIDTH = 280;
-const SIDEBAR_COLLAPSED_WIDTH = 64;
 
-const toolItems = [
-  { key: 'skill', icon: <ThunderboltOutlined />, label: 'Skill 市场' },
-  { key: 'mcp', icon: <ApiOutlined />, label: '接入 MCP' },
+const mainNavItems = [
+  { key: 'chat', icon: <MessageOutlined />, label: '新建会话', path: '/chat' },
+];
+
+const featureNavItems = [
+  { key: 'skill', icon: <ThunderboltOutlined />, label: 'Skill 市场', path: '/mcp-tools' },
+  { key: 'mcp', icon: <ApiOutlined />, label: '接入 MCP', path: '/mcp-tools' },
+  { key: 'agent', icon: <RobotOutlined />, label: 'Agent 事例', path: '#' },
 ];
 
 export default function AppLayout() {
@@ -45,45 +52,149 @@ export default function AppLayout() {
     { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: handleLogout },
   ];
 
-  const isActive = (path: string) => location.pathname.startsWith(path);
+  const isActive = (path: string) => location.pathname.startsWith(path) || (path === '/chat' && location.pathname === '/');
+
+  const handleNavClick = (item: { key: string; path: string }) => {
+    if (item.path === '#') return;
+    if (!isAuthenticated && (item.key === 'skill' || item.key === 'mcp' || item.key === 'agent')) {
+      setLoginModalOpen(true);
+      return;
+    }
+    navigate(item.path);
+  };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      {/* ============ Sidebar ============ */}
-      <div style={{
-        width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
-        background: '#16162a',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: `width 250ms cubic-bezier(0.4, 0, 0.2, 1)`,
-        flexShrink: 0,
-        overflow: 'hidden',
-      }}>
-        {/* Logo */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'space-between',
-          padding: collapsed ? '16px 0' : '16px 20px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-        }}>
-          {!collapsed && (
-            <span style={{ fontWeight: 700, fontSize: 18, color: '#f0f0f5', whiteSpace: 'nowrap' }}>
-              ShardFlow
-            </span>
-          )}
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ color: '#9ca3af', fontSize: 16 }}
-          />
-        </div>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', position: 'relative' }}>
+      <div className="paper-texture" />
 
-        {/* Tools */}
-        <div style={{ padding: collapsed ? '12px 0' : '12px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {toolItems.map((item) => (
-            <Tooltip key={item.key} title={isAuthenticated ? item.label : '登录后可用'} placement="right">
+      {!collapsed && (
+        <div
+          className="sidebar-mobile-hidden"
+          style={{
+            width: SIDEBAR_WIDTH,
+            background: 'linear-gradient(180deg, var(--paper) 0%, var(--paper-warm) 100%)',
+            display: 'flex',
+            flexDirection: 'column',
+            flexShrink: 0,
+            overflow: 'hidden',
+            borderRight: '1px solid var(--paper-dark)',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            right: -1,
+            width: 1,
+            height: '100%',
+            background: 'linear-gradient(to bottom, transparent 0%, var(--ink-muted) 30%, var(--ink-muted) 70%, transparent 100%)',
+            opacity: 0.3,
+          }} />
+
+          <div style={{ padding: '24px 24px 16px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <ShardFlowLogo size={32} />
+              <h1 className="cn-title" style={{ fontSize: 20, letterSpacing: '0.08em', color: 'var(--ink)', margin: 0 }}>
+                ShardFlow
+              </h1>
+              <Button
+                type="text"
+                icon={<MenuFoldOutlined />}
+                onClick={() => setCollapsed(true)}
+                style={{ color: 'var(--ink-faint)', fontSize: 14, marginLeft: 'auto', padding: '4px 8px' }}
+                size="small"
+              />
+            </div>
+          </div>
+
+          <div className="hand-line" style={{ margin: '0 24px' }} />
+
+          <div style={{ padding: '16px 20px' }}>
+            {mainNavItems.map((item) => (
+              <Tooltip key={item.key} title={item.label} placement="right">
+                <div
+                  onClick={() => handleNavClick(item)}
+                  className="nav-item"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    color: isActive(item.path) ? 'var(--ink)' : 'var(--ink-faint)',
+                    background: isActive(item.path) ? 'rgba(255,255,255,0.5)' : 'transparent',
+                    fontWeight: isActive(item.path) ? 500 : 400,
+                    fontSize: 14,
+                    transition: 'all 0.3s ease',
+                    letterSpacing: '0.08em',
+                    position: 'relative',
+                    marginBottom: 4,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive(item.path)) {
+                      (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive(item.path)) {
+                      (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--ink-faint)';
+                    }
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+              </Tooltip>
+            ))}
+          </div>
+
+          <div style={{ padding: '4px 20px 16px' }}>
+            {featureNavItems.map((item) => (
+              <Tooltip
+                key={item.key}
+                title={isAuthenticated ? item.label : '登录后可用'}
+                placement="right"
+              >
+                <div
+                  onClick={() => handleNavClick(item)}
+                  className="nav-item"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    color: 'var(--ink-faint)',
+                    transition: 'all 0.3s ease',
+                    fontSize: 14,
+                    letterSpacing: '0.08em',
+                    position: 'relative',
+                    marginBottom: 4,
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--ink-faint)';
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+              </Tooltip>
+            ))}
+            <Tooltip title="添加新功能" placement="right">
               <div
                 onClick={() => {
                   if (!isAuthenticated) { setLoginModalOpen(true); return; }
@@ -91,114 +202,170 @@ export default function AppLayout() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: collapsed ? 0 : 12,
-                  padding: collapsed ? '12px 0' : '10px 12px',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '10px 12px',
                   borderRadius: 8,
                   cursor: 'pointer',
-                  color: isAuthenticated ? '#9ca3af' : '#6b7280',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  transition: 'background 150ms',
+                  color: 'var(--ink-faint)',
+                  border: '1px dashed var(--ink-muted)',
+                  transition: 'all 0.3s ease',
+                  fontSize: 14,
+                  marginTop: 8,
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#1e1e3a'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--ink-soft)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--ink-muted)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-faint)';
+                }}
               >
-                <span style={{ fontSize: 18, opacity: isAuthenticated ? 1 : 0.4 }}>{item.icon}</span>
-                {!collapsed && (
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: isAuthenticated ? '#f0f0f5' : '#6b7280' }}>
-                      {item.label}
-                    </div>
-                  </div>
-                )}
-                {!collapsed && !isAuthenticated && <span style={{ fontSize: 14 }}>🔒</span>}
+                <PlusOutlined />
+                <span className="cn-sans">添加</span>
               </div>
             </Tooltip>
-          ))}
-        </div>
+          </div>
 
-        {/* History */}
-        <div style={{ flex: 1, overflow: 'auto', padding: collapsed ? '8px 0' : '8px 12px' }}>
-          {!collapsed && (
-            <div
-              style={{
-                padding: '8px 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#6b7280',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-              }}
-            >
-              历史对话
-            </div>
-          )}
-          {!collapsed && !isAuthenticated && (
-            <div style={{ padding: '16px 12px', textAlign: 'center' }}>
-              <Text style={{ fontSize: 13, color: '#6b7280' }}>登录后可查看历史对话</Text>
-            </div>
-          )}
-          {collapsed && (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
-              <HistoryOutlined style={{ color: '#6b7280', fontSize: 18 }} />
-            </div>
-          )}
-        </div>
+          <div className="hand-line" style={{ margin: '0 24px' }} />
 
-        {/* User */}
-        <div style={{
-          padding: collapsed ? '12px 0' : '12px 16px',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-        }}>
-          {isAuthenticated ? (
-            <Dropdown menu={{ items: userMenuItems }} placement="topRight" trigger={['click']}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: collapsed ? 0 : 10,
-                cursor: 'pointer',
-                padding: collapsed ? '8px' : '8px 12px',
-                borderRadius: 8,
-                width: collapsed ? 'auto' : '100%',
-                justifyContent: collapsed ? 'center' : 'flex-start',
-              }}>
-                <Avatar size={32} icon={<UserOutlined />} style={{ background: '#4e7dff', flexShrink: 0 }} />
-                {!collapsed && <Text style={{ color: '#f0f0f5', fontSize: 14, fontWeight: 500 }}>{userId}</Text>}
+          <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
+            <div className="cn-sans" style={{
+              padding: '8px 8px 4px',
+              fontSize: 12,
+              fontWeight: 500,
+              color: 'var(--ink-faint)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              letterSpacing: '0.1em',
+            }}>
+              历史会话
+              <HistoryOutlined style={{ fontSize: 12 }} />
+            </div>
+            {!isAuthenticated && (
+              <div style={{ padding: '16px 12px', textAlign: 'center' }}>
+                <Text className="cn-tag" style={{ fontSize: 13, color: 'var(--ink-muted)' }}>登录后可查看历史对话</Text>
               </div>
-            </Dropdown>
-          ) : (
-            <Button
-              type="primary"
-              icon={<LoginOutlined />}
-              onClick={() => setLoginModalOpen(true)}
-              style={{
-                background: '#4e7dff',
-                border: 'none',
-                borderRadius: 8,
-                fontWeight: 500,
-                width: collapsed ? 'auto' : '100%',
-              }}
-            >
-              {!collapsed && '登录'}
-            </Button>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
 
-      {/* ============ Main ============ */}
+          <div style={{
+            padding: '16px 20px',
+            borderTop: '1px solid var(--paper-dark)',
+            display: 'flex',
+            alignItems: 'center',
+          }}>
+            {isAuthenticated ? (
+              <Dropdown menu={{ items: userMenuItems }} placement="topRight" trigger={['click']}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: 'pointer',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  width: '100%',
+                  transition: 'background 0.3s ease',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.4)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                >
+                  <div style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    border: '2px solid var(--ink-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--ink)',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    flexShrink: 0,
+                  }} className="cn-sans">
+                    {(userId || '用')[0]}
+                  </div>
+                  <div>
+                    <Text className="cn-sans" style={{ color: 'var(--ink)', fontSize: 14, fontWeight: 500, letterSpacing: '0.04em' }}>{userId || '用户'}</Text>
+                    <p className="cn-tag" style={{ fontSize: 11, margin: 0 }}>专业版会员</p>
+                  </div>
+                </div>
+              </Dropdown>
+            ) : (
+              <div
+                onClick={() => setLoginModalOpen(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: 'pointer',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  width: '100%',
+                  color: 'var(--ink-faint)',
+                  fontSize: 14,
+                  transition: 'background 0.3s ease',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.4)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+              >
+                <div style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                  border: '2px solid var(--ink-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <UserOutlined style={{ fontSize: 14, color: 'var(--ink-faint)' }} />
+                </div>
+                <span className="cn-sans">登录后获得更多功能</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {collapsed && (
+        <div
+          className="sidebar-mobile-hidden"
+          style={{
+            width: 48,
+            background: 'linear-gradient(180deg, var(--paper) 0%, var(--paper-warm) 100%)',
+            borderRight: '1px solid var(--paper-dark)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            paddingTop: 16,
+            flexShrink: 0,
+            zIndex: 1,
+          }}
+        >
+          <Button
+            type="text"
+            icon={<MenuUnfoldOutlined />}
+            onClick={() => setCollapsed(false)}
+            style={{ color: 'var(--ink-faint)', fontSize: 16 }}
+          />
+        </div>
+      )}
+
       <div style={{
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        background: '#f7f7f8',
+        background: 'var(--paper)',
         overflow: 'hidden',
+        position: 'relative',
+        zIndex: 1,
       }}>
         <Outlet context={{ onLoginRequired: () => setLoginModalOpen(true), isAuthenticated }} />
       </div>
 
-      {/* Login Modal */}
       <LoginModal open={loginModalOpen} onClose={() => setLoginModalOpen(false)} />
     </div>
   );

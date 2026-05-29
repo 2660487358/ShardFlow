@@ -3,9 +3,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.1.0</version></parent>
+    <parent>
+        <groupId>com.shardflow</groupId>
+        <artifactId>shardflow-system</artifactId>
+        <version>0.2.0</version>
+    </parent>
     <artifactId>shardflow-app</artifactId>
     <packaging>jar</packaging>
+    <name>ShardFlow App</name>
+    <description>单体应用启动入口</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
@@ -16,10 +22,37 @@
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-task</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-profile</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-mcp</artifactId></dependency>
-        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
-        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
-        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
-        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+        <!-- MyBatis-Plus -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+        </dependency>
+        <!-- Sa-Token -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-spring-boot4-starter</artifactId>
+            <version>${sa-token.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-jwt</artifactId>
+            <version>${sa-token.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
     </dependencies>
-    <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

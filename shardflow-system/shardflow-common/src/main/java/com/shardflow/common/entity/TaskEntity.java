@@ -1,54 +1,36 @@
 package com.shardflow.common.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import java.time.Instant;
 
-@Entity
-@Table(name = "shardflow_task")
+@Data
+@NoArgsConstructor
+@TableName("shardflow_task")
 public class TaskEntity {
 
-    @Id
-    @Column(name = "task_id", length = 128)
+    @TableId(value = "task_id", type = IdType.INPUT)
     private String taskId;
 
-    @Column(name = "user_id", nullable = false, length = 64)
+    @TableField("user_id")
     private String userId;
 
-    @Column(length = 512)
+    @TableField("title")
     private String title;
 
-    @Column(columnDefinition = "text")
+    @TableField("description")
     private String description;
 
-    @Column(length = 32, nullable = false)
+    @TableField("status")
     private String status = "PENDING";
 
-    @Column(name = "session_id", length = 128)
+    @TableField("session_id")
     private String sessionId;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt = Instant.now();
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
+    private Instant createdAt;
 
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt = Instant.now();
-
-    public TaskEntity() {}
-
-    public String getTaskId() { return taskId; }
-    public void setTaskId(String taskId) { this.taskId = taskId; }
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
-    public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public String getSessionId() { return sessionId; }
-    public void setSessionId(String sessionId) { this.sessionId = sessionId; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
-
-    @PreUpdate
-    public void onUpdate() { this.updatedAt = Instant.now(); }
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
+    private Instant updatedAt;
 }

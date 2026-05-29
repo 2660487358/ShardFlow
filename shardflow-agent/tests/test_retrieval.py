@@ -8,9 +8,9 @@ from app.models.search_result import SearchResult, ToolMetadata
 
 
 class TestToolRegistry:
-    def test_list_all_returns_six_tools(self):
+    def test_list_all_returns_seven_tools(self):
         tools = tool_registry.list_all()
-        assert len(tools) == 6
+        assert len(tools) == 7
 
     def test_get_known_tool(self):
         tool = tool_registry.get("read_file")

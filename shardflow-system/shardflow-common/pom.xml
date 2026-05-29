@@ -7,17 +7,22 @@
     <parent>
         <groupId>com.shardflow</groupId>
         <artifactId>shardflow-system</artifactId>
-        <version>0.1.0</version>
+        <version>0.2.0</version>
     </parent>
 
     <artifactId>shardflow-common</artifactId>
     <name>ShardFlow Common</name>
-    <description>Shared entities, DTOs, exceptions, and Redis configuration for ShardFlow</description>
+    <description>共享实体、DTO、异常定义、全局配置</description>
 
     <dependencies>
+        <!-- MyBatis-Plus 替代 JPA -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -31,5 +36,6 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+
     </dependencies>
 </project>

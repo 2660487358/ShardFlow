@@ -12,13 +12,23 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('shardflow_token');
-  const userId = localStorage.getItem('shardflow_user_id');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  if (userId) config.headers['X-User-Id'] = userId;
   return config;
 });
 
 export default api;
+
+export const systemApi = axios.create({
+  baseURL: '/api/v1',
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+systemApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('shardflow_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 export const authApi = axios.create({
   baseURL: AUTH_BASE,
@@ -48,7 +58,6 @@ export async function sendConversation(
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
-        'X-User-Id': userId,
       },
       body: JSON.stringify({
         task_id: taskId,

@@ -36,8 +36,9 @@ export default function TaskPage() {
   ];
 
   return (
-    <div>
-      <Title level={4}>任务管理</Title>
+    <div style={{ padding: 32 }}>
+      <Title level={4} className="cn-title" style={{ color: 'var(--ink)', letterSpacing: '0.05em' }}>任务管理</Title>
+      <div className="hand-line" style={{ margin: '12px 0 24px', maxWidth: 200 }} />
       <Table columns={columns} dataSource={tasks} rowKey="task_id" size="middle" />
     </div>
   );

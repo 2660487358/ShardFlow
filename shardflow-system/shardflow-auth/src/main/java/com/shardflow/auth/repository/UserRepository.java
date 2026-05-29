@@ -1,10 +1,9 @@
 package com.shardflow.auth.repository;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.shardflow.common.entity.UserEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.Optional;
+import org.apache.ibatis.annotations.Mapper;
 
-public interface UserRepository extends JpaRepository<UserEntity, String> {
-    Optional<UserEntity> findByUsername(String username);
-    Optional<UserEntity> findByUserId(String userId);
+@Mapper
+public interface UserRepository extends BaseMapper<UserEntity> {
 }

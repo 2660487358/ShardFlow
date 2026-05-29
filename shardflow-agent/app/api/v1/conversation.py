@@ -36,6 +36,12 @@ async def handle_conversation(
     if not request.message or len(request.message) > 10000:
         raise HTTPException(status_code=400, detail="message must be non-empty and <= 10000 chars")
 
+    # InputGuard: 安全检查
+    from app.layers.security.input_guard import input_guard
+    inspection = input_guard.inspect(request.message)
+    if not inspection.passed and inspection.risk_level in ("HIGH", "CRITICAL"):
+        raise HTTPException(status_code=400, detail=f"Input rejected: {'; '.join(inspection.reasons)}")
+
     session_id = x_session_id or request.session_id
     session = await session_manager.get_session(user_id, session_id) if session_id else None
     if session is None:

@@ -1,20 +1,20 @@
 -- ============================================================
--- KnowledgeBridge Database Initialization
+-- ShardFlow Database Initialization
 -- Phase 2: Schema creation, pgvector extension, core tables
 -- ============================================================
 
 -- Enable pgvector extension for semantic search
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Create schema for tenant isolation
-CREATE SCHEMA IF NOT EXISTS kb_shared;
+-- Create schema for user isolation
+CREATE SCHEMA IF NOT EXISTS shardflow_shared;
 
 -- -----------------------------------------------------------
--- kb_shard: Context shard storage with versioning
+-- shardflow_shard: Context shard storage with versioning
 -- -----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS kb_shard (
+CREATE TABLE IF NOT EXISTS shardflow_shard (
     id              VARCHAR(36)  PRIMARY KEY,
-    tenant_id       VARCHAR(64)  NOT NULL,
+    user_id         VARCHAR(64)  NOT NULL,
     task_id         VARCHAR(128) NOT NULL,
     session_seq     INT          NOT NULL DEFAULT 0,
     confirmed       JSONB        NOT NULL DEFAULT '[]',
@@ -29,15 +29,15 @@ CREATE TABLE IF NOT EXISTS kb_shard (
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_shard_tenant_task ON kb_shard(tenant_id, task_id);
-CREATE INDEX idx_shard_task_version ON kb_shard(task_id, version DESC);
+CREATE INDEX idx_shard_user_task ON shardflow_shard(user_id, task_id);
+CREATE INDEX idx_shard_task_version ON shardflow_shard(task_id, version DESC);
 
 -- -----------------------------------------------------------
--- kb_strategy: Strategy records with embedding for pgvector search
+-- shardflow_strategy: Strategy records with embedding for pgvector search
 -- -----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS kb_strategy (
+CREATE TABLE IF NOT EXISTS shardflow_strategy (
     strategy_id     VARCHAR(128) PRIMARY KEY,
-    tenant_id       VARCHAR(64)  NOT NULL,
+    user_id         VARCHAR(64)  NOT NULL,
     task_type       VARCHAR(64)  NOT NULL,
     query_pattern   VARCHAR(1024),
     source_combo    JSONB,
@@ -47,15 +47,15 @@ CREATE TABLE IF NOT EXISTS kb_strategy (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_strategy_tenant_type ON kb_strategy(tenant_id, task_type);
-CREATE INDEX idx_strategy_embedding ON kb_strategy USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_strategy_user_type ON shardflow_strategy(user_id, task_type);
+CREATE INDEX idx_strategy_embedding ON shardflow_strategy USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- -----------------------------------------------------------
--- kb_task: Task management
+-- shardflow_task: Task management
 -- -----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS kb_task (
+CREATE TABLE IF NOT EXISTS shardflow_task (
     task_id         VARCHAR(128) PRIMARY KEY,
-    tenant_id       VARCHAR(64)  NOT NULL,
+    user_id         VARCHAR(64)  NOT NULL,
     title           VARCHAR(512),
     description     TEXT,
     status          VARCHAR(32)  NOT NULL DEFAULT 'PENDING',
@@ -64,29 +64,29 @@ CREATE TABLE IF NOT EXISTS kb_task (
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_task_tenant ON kb_task(tenant_id);
-CREATE INDEX idx_task_status ON kb_task(status);
+CREATE INDEX idx_task_user ON shardflow_task(user_id);
+CREATE INDEX idx_task_status ON shardflow_task(status);
 
 -- -----------------------------------------------------------
--- kb_user: User authentication
+-- shardflow_user: User authentication
 -- -----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS kb_user (
+CREATE TABLE IF NOT EXISTS shardflow_user (
     id              VARCHAR(36)  PRIMARY KEY,
     username        VARCHAR(128) NOT NULL UNIQUE,
     password_hash   VARCHAR(256) NOT NULL,
-    tenant_id       VARCHAR(64)  NOT NULL,
+    user_id         VARCHAR(64)  NOT NULL,
     role            VARCHAR(32)  NOT NULL DEFAULT 'USER',
     enabled         BOOLEAN      NOT NULL DEFAULT true,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_user_tenant ON kb_user(tenant_id);
-CREATE INDEX idx_user_username ON kb_user(username);
+CREATE INDEX idx_user_user ON shardflow_user(user_id);
+CREATE INDEX idx_user_username ON shardflow_user(username);
 
 -- -----------------------------------------------------------
 -- Insert default strategies for cold-start scenarios
 -- -----------------------------------------------------------
-INSERT INTO kb_strategy (strategy_id, tenant_id, task_type, query_pattern, source_combo, success_score, cost_ms)
+INSERT INTO shardflow_strategy (strategy_id, user_id, task_type, query_pattern, source_combo, success_score, cost_ms)
 VALUES
     ('default-dependency', 'system', 'dependency_chain_analysis',
      'Trace service call dependencies',

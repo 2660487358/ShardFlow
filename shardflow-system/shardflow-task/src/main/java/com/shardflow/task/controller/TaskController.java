@@ -1,55 +1,51 @@
 package com.shardflow.task.controller;
 
+import com.shardflow.common.dto.Result;
 import com.shardflow.common.entity.TaskEntity;
 import com.shardflow.task.service.TaskService;
 import com.shardflow.usercontext.context.UserContext;
-import org.springframework.http.ResponseEntity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/tasks")
+@RequiredArgsConstructor
 public class TaskController {
 
     private final TaskService taskService;
 
-    public TaskController(TaskService taskService) {
-        this.taskService = taskService;
-    }
-
     @PostMapping
-    public ResponseEntity<TaskEntity> create(@RequestBody Map<String, String> body) {
-        String userId = UserContext.getUserId();
+    public Result<TaskEntity> create(@RequestBody Map<String, String> body) {
         TaskEntity task = taskService.createTask(
-            userId,
+            UserContext.getUserId(),
             body.getOrDefault("title", ""),
             body.get("description")
         );
-        return ResponseEntity.ok(task);
+        return Result.ok(task);
     }
 
     @GetMapping
-    public ResponseEntity<List<TaskEntity>> list() {
-        return ResponseEntity.ok(taskService.listTasks(UserContext.getUserId()));
+    public Result<?> list() {
+        return Result.ok(taskService.listTasks(UserContext.getUserId()));
     }
 
     @GetMapping("/{taskId}")
-    public ResponseEntity<TaskEntity> get(@PathVariable String taskId) {
+    public Result<?> get(@PathVariable String taskId) {
         return taskService.getTask(taskId)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .map(Result::ok)
+            .orElse(Result.fail(404, "Task not found"));
     }
 
     @PutMapping("/{taskId}/status")
-    public ResponseEntity<?> updateStatus(@PathVariable String taskId, @RequestBody Map<String, String> body) {
+    public Result<?> updateStatus(@PathVariable String taskId, @RequestBody Map<String, String> body) {
         try {
             return taskService.updateStatus(taskId, body.get("status"))
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(Result::ok)
+                .orElse(Result.fail(404, "Task not found"));
         } catch (IllegalArgumentException | IllegalStateException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            return Result.fail(400, e.getMessage());
         }
     }
 }

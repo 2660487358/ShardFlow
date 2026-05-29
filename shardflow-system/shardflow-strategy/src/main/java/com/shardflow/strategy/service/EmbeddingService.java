@@ -86,7 +86,6 @@ public class EmbeddingService {
         }
     }
 
-    @FunctionalInterface
     public interface StrategySaveHandler {
         String getText();
         void onEmbeddingGenerated(String vectorString);
