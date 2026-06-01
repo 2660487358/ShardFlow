@@ -1,7 +1,7 @@
-﻿"""Conversation endpoint with SSE streaming support."""
+"""Conversation endpoint with SSE streaming support."""
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -25,44 +25,44 @@ class ConversationRequest(BaseModel):
 
 @router.post("/conversation")
 async def handle_conversation(
-    request: ConversationRequest,
+    fastapi_request: Request,
+    body: ConversationRequest,
     x_user_id: str = Header(default=""),
     x_session_id: str = Header(default=""),
     x_task_id: str = Header(default=""),
 ) -> Any:
-    user_id = x_user_id or request.user_id
+    user_id = x_user_id or body.user_id
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-    if not request.message or len(request.message) > 10000:
+    if not body.message or len(body.message) > 10000:
         raise HTTPException(status_code=400, detail="message must be non-empty and <= 10000 chars")
 
-    # InputGuard: 安全检查
     from app.layers.security.input_guard import input_guard
-    inspection = input_guard.inspect(request.message)
+    inspection = input_guard.inspect(body.message)
     if not inspection.passed and inspection.risk_level in ("HIGH", "CRITICAL"):
         raise HTTPException(status_code=400, detail=f"Input rejected: {'; '.join(inspection.reasons)}")
 
-    session_id = x_session_id or request.session_id
+    session_id = x_session_id or body.session_id
     session = await session_manager.get_session(user_id, session_id) if session_id else None
     if session is None:
-        session = await session_manager.create_session(user_id, request.task_id or x_task_id, session_id)
+        session = await session_manager.create_session(user_id, body.task_id or x_task_id, session_id)
         session_id = session["session_id"]
 
-    intent, confidence = await intent_recognizer.recognize_async(request.message)
-    entities = await entity_extractor.extract_async(request.message)
+    intent, confidence = await intent_recognizer.recognize_async(body.message)
+    entities = await entity_extractor.extract_async(body.message)
 
     state = create_initial_state(
-        task_id=request.task_id or x_task_id,
+        task_id=body.task_id or x_task_id,
         user_id=user_id,
         session_id=session_id,
-        user_input=request.message,
+        user_input=body.message,
     )
     state["intent"] = intent
     state["entities"] = entities
 
-    if request.stream:
+    if body.stream:
         async def event_generator() -> Any:
-            async for sse_msg in stream_react_events(state):
+            async for sse_msg in stream_react_events(state, fastapi_request):
                 yield sse_msg
 
         return EventSourceResponse(

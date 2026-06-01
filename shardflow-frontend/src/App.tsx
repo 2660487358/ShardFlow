@@ -8,6 +8,7 @@ import HistoryPage from './pages/HistoryPage';
 import McpToolsPage from './pages/McpToolsPage';
 import ProfilePage from './pages/ProfilePage';
 import TaskPage from './pages/TaskPage';
+import WorkspacePage from './pages/WorkspacePage';
 import NotFoundPage from './pages/NotFoundPage';
 import KnowledgePage from './pages/KnowledgePage';
 import KnowledgeDetailPage from './pages/KnowledgeDetailPage';
@@ -100,6 +101,7 @@ export default function App() {
             <Route path="history" element={<HistoryPage />} />
             <Route path="tasks" element={<TaskPage />} />
             <Route path="mcp-tools" element={<McpToolsPage />} />
+            <Route path="workspace" element={<WorkspacePage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="kb" element={<KnowledgePage />} />
             <Route path="kb/:id" element={<KnowledgeDetailPage />} />

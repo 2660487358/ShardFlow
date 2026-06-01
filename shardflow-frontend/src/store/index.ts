@@ -89,10 +89,18 @@ interface AppState {
 
   // Custom Models
   customModels: CustomModel[];
+  addCustomModel: (model: Omit<CustomModel, 'id' | 'created_at'>) => void;
+  removeCustomModel: (id: string) => void;
+  updateCustomModel: (id: string, updates: Partial<Omit<CustomModel, 'id' | 'created_at'>>) => void;
   setCustomModels: (models: CustomModel[]) => void;
 
   // Agent Configs
   agentConfigs: AgentConfig[];
+  activeAgentId: string | null;
+  addAgent: (agent: Omit<AgentConfig, 'id' | 'created_at' | 'updated_at'>) => void;
+  removeAgent: (id: string) => void;
+  updateAgent: (id: string, updates: Partial<Omit<AgentConfig, 'id' | 'created_at' | 'updated_at'>>) => void;
+  setActiveAgent: (id: string | null) => void;
   setAgentConfigs: (configs: AgentConfig[]) => void;
 }
 
@@ -175,10 +183,53 @@ export const useStore = create<AppState>((set) => ({
   clearKbSearchResults: () => set({ kbSearchResults: [] }),
 
   // Custom Models
-  customModels: [],
+  customModels: JSON.parse(localStorage.getItem('shardflow_custom_models') || '[]'),
+  addCustomModel: (model) => set((s) => {
+    const newModel: CustomModel = { ...model, id: `custom-${Date.now()}`, created_at: new Date().toISOString() };
+    const updated = [...s.customModels, newModel];
+    localStorage.setItem('shardflow_custom_models', JSON.stringify(updated));
+    return { customModels: updated };
+  }),
+  removeCustomModel: (id) => set((s) => {
+    const updated = s.customModels.filter((m) => m.id !== id);
+    localStorage.setItem('shardflow_custom_models', JSON.stringify(updated));
+    return { customModels: updated };
+  }),
+  updateCustomModel: (id, updates) => set((s) => {
+    const updated = s.customModels.map((m) => m.id === id ? { ...m, ...updates } : m);
+    localStorage.setItem('shardflow_custom_models', JSON.stringify(updated));
+    return { customModels: updated };
+  }),
   setCustomModels: (models) => set({ customModels: models }),
 
   // Agent Configs
-  agentConfigs: [],
+  agentConfigs: JSON.parse(localStorage.getItem('shardflow_agents') || '[]'),
+  activeAgentId: localStorage.getItem('shardflow_active_agent') || null,
+  addAgent: (agent) => set((s) => {
+    const now = new Date().toISOString();
+    const newAgent: AgentConfig = { ...agent, id: `agent-${Date.now()}`, created_at: now, updated_at: now };
+    const updated = [...s.agentConfigs, newAgent];
+    localStorage.setItem('shardflow_agents', JSON.stringify(updated));
+    return { agentConfigs: updated };
+  }),
+  removeAgent: (id) => set((s) => {
+    const updated = s.agentConfigs.filter((a) => a.id !== id);
+    localStorage.setItem('shardflow_agents', JSON.stringify(updated));
+    if (s.activeAgentId === id) {
+      localStorage.removeItem('shardflow_active_agent');
+      return { agentConfigs: updated, activeAgentId: null };
+    }
+    return { agentConfigs: updated };
+  }),
+  updateAgent: (id, updates) => set((s) => {
+    const updated = s.agentConfigs.map((a) => a.id === id ? { ...a, ...updates, updated_at: new Date().toISOString() } : a);
+    localStorage.setItem('shardflow_agents', JSON.stringify(updated));
+    return { agentConfigs: updated };
+  }),
+  setActiveAgent: (id) => {
+    if (id) localStorage.setItem('shardflow_active_agent', id);
+    else localStorage.removeItem('shardflow_active_agent');
+    set({ activeAgentId: id });
+  },
   setAgentConfigs: (configs) => set({ agentConfigs: configs }),
 }));

@@ -4,12 +4,13 @@ services:
       context: ../shardflow-agent
       dockerfile: docker/Dockerfile
     ports:
-      - "8000:8000"
+      - "${SF_AGENT_API_PORT:-8000}:8000"
     environment:
-      - APP_ENV=dev
-      - REDIS_URL=redis://redis:6379/0
-      - JAVA_BASE_URL=http://java-service:8080
-      - LOG_LEVEL=INFO
+      - SF_AGENT_APP_ENV=dev
+      - SF_AGENT_REDIS_URL=redis://redis:6379/0
+      - SF_AGENT_JAVA_BASE_URL=http://java-service:8200
+      - SF_AGENT_LOG_LEVEL=INFO
+      - SF_AGENT_MILVUS_HOST=milvus
     depends_on:
       redis:
         condition: service_healthy
@@ -22,7 +23,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${SF_INFRA_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -31,13 +32,13 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     ports:
-      - "5432:5432"
+      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
     environment:
-      POSTGRES_USER: shardflow
-      POSTGRES_PASSWORD: shardflow
-      POSTGRES_DB: shardflow
+      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
+      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
+      POSTGRES_DB: ${SF_INFRA_POSTGRES_DB:-shardflow}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U shardflow"]
       interval: 5s
@@ -48,11 +49,11 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${SF_INFRA_MINIO_API_PORT:-9000}:9000"
+      - "${SF_INFRA_MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${SF_INFRA_MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${SF_INFRA_MINIO_SECRET_KEY:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data

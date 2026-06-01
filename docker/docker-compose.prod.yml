@@ -3,7 +3,7 @@ version: "3.9"
 
 services:
   # =========================================================================
-  # Python推理层 (2 replicas for HA)
+  # Python Inference Layer (2 replicas for HA)
   # =========================================================================
   python-inference-1:
     build:
@@ -12,15 +12,16 @@ services:
     ports:
       - "8001:8000"
     environment:
-      - APP_ENV=prod
-      - REDIS_URL=redis://redis-sentinel:26379/0
-      - JAVA_BASE_URL=http://java-service-1:8080
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - JAVA_API_KEY=${JAVA_API_KEY}
-      - LOG_LEVEL=WARNING
-      - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - SF_AGENT_APP_ENV=prod
+      - SF_AGENT_REDIS_URL=redis://redis-sentinel:26379/0
+      - SF_AGENT_JAVA_BASE_URL=http://java-service-1:8200
+      - SF_AGENT_LLM_API_KEY=${SF_AGENT_LLM_API_KEY}
+      - SF_AGENT_LLM_BASE_URL=${SF_AGENT_LLM_BASE_URL}
+      - SF_AGENT_JAVA_API_KEY=${SF_AGENT_JAVA_API_KEY}
+      - SF_AGENT_LOG_LEVEL=WARNING
+      - SF_AGENT_STACKEXCHANGE_API_KEY=${SF_AGENT_STACKEXCHANGE_API_KEY:-}
+      - SF_AGENT_GITHUB_TOKEN=${SF_AGENT_GITHUB_TOKEN:-}
+      - SF_AGENT_MILVUS_HOST=milvus
     depends_on:
       redis-node-1:
         condition: service_healthy
@@ -37,13 +38,13 @@ services:
     ports:
       - "8002:8000"
     environment:
-      - APP_ENV=prod
-      - REDIS_URL=redis://redis-sentinel:26379/0
-      - JAVA_BASE_URL=http://java-service-2:8080
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - JAVA_API_KEY=${JAVA_API_KEY}
-      - LOG_LEVEL=WARNING
+      - SF_AGENT_APP_ENV=prod
+      - SF_AGENT_REDIS_URL=redis://redis-sentinel:26379/0
+      - SF_AGENT_JAVA_BASE_URL=http://java-service-2:8200
+      - SF_AGENT_LLM_API_KEY=${SF_AGENT_LLM_API_KEY}
+      - SF_AGENT_LLM_BASE_URL=${SF_AGENT_LLM_BASE_URL}
+      - SF_AGENT_JAVA_API_KEY=${SF_AGENT_JAVA_API_KEY}
+      - SF_AGENT_LOG_LEVEL=WARNING
     depends_on:
       redis-node-1:
         condition: service_healthy
@@ -53,20 +54,21 @@ services:
         limits: { cpus: "2", memory: "4G" }
 
   # =========================================================================
-  # Java外围服务 (2 replicas)
+  # Java Peripheral Service (2 replicas)
   # =========================================================================
   java-service-1: &java-service
     build:
       context: ../shardflow-system
       dockerfile: Dockerfile
     ports:
-      - "8081:8080"
+      - "8081:8200"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-primary:5432/shardflow
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-shardflow}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-shardflow}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-primary:5432/${SF_INFRA_POSTGRES_DB:-shardflow}
+      - SPRING_DATASOURCE_USERNAME=${SF_INFRA_POSTGRES_USER:-shardflow}
+      - SPRING_DATASOURCE_PASSWORD=${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
       - SPRING_DATA_REDIS_HOST=redis-sentinel
-      - JAVA_API_KEY=${JAVA_API_KEY}
+      - SF_SYSTEM_JAVA_API_KEY=${SF_AGENT_JAVA_API_KEY:-}
+      - SA_TOKEN_JWT_SECRET_KEY=${SA_TOKEN_JWT_SECRET_KEY:-ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
     depends_on:
       postgres-primary:
         condition: service_healthy
@@ -78,7 +80,7 @@ services:
   java-service-2:
     <<: *java-service
     ports:
-      - "8082:8080"
+      - "8082:8200"
 
   # =========================================================================
   # Nginx API Gateway
@@ -105,11 +107,11 @@ services:
   postgres-primary:
     image: pgvector/pgvector:pg18
     ports:
-      - "5432:5432"
+      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-shardflow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shardflow}
-      POSTGRES_DB: shardflow
+      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
+      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
+      POSTGRES_DB: ${SF_INFRA_POSTGRES_DB:-shardflow}
     volumes:
       - pg-primary-data:/var/lib/postgresql/data
       - ../shardflow-system/shardflow-shard/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
@@ -130,7 +132,7 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-    command: redis-server --requirepass ${REDIS_PASSWORD:-} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --requirepass ${SF_INFRA_REDIS_PASSWORD:-} --maxmemory 512mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -167,11 +169,11 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${SF_INFRA_MINIO_API_PORT:-9000}:9000"
+      - "${SF_INFRA_MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_ROOT_USER: ${SF_INFRA_MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${SF_INFRA_MINIO_SECRET_KEY:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
       - minio-data:/data

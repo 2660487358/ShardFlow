@@ -61,11 +61,14 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     setInput('');
     setStreaming(true);
 
+    const controller = new AbortController();
+    setAbortController(controller);
+
     const assistantMsgId = (Date.now() + 1).toString();
     let assistantContent = '';
 
     await sendConversation(
-      effectiveTaskId, userMsg.content, activeSessionId || '',
+      effectiveTaskId, userMsg.content, activeSessionId || '', selectedModel,
       (event: { type: string; data: Record<string, unknown> }) => {
         const data = event.data || {};
         if (event.type === 'profile_applied') { message.info(`已应用偏好：${data.preferred_depth || '默认'}`); return; }
@@ -88,9 +91,22 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
       (err) => {
         addMessage({ id: (Date.now() + 2).toString(), role: 'system', content: `Error: ${err.message}`, eventType: 'error', timestamp: Date.now() });
         setStreaming(false);
+        setAbortController(null);
       },
-      () => setStreaming(false),
+      () => {
+        setStreaming(false);
+        setAbortController(null);
+      },
+      controller.signal,
     );
+  };
+
+  const handleStop = () => {
+    if (abortController) {
+      abortController.abort();
+      setStreaming(false);
+      setAbortController(null);
+    }
   };
 
   const extractContent = (type: string, data: Record<string, unknown>): string => {
@@ -110,7 +126,12 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     }
   };
 
-  const currentModelLabel = builtInModelOptions.find(m => m.key === selectedModel)?.label || 'GPT-4o (复杂推理)';
+  const modelOptions = [
+    ...builtInModelOptions,
+    ...customModels.map((m) => ({ key: m.id, label: `${m.name} (自定义)` })),
+  ];
+
+  const currentModelLabel = modelOptions.find(m => m.key === selectedModel)?.label || 'GPT-4o (复杂推理)';
 
   return (
     <div style={{
@@ -284,77 +305,81 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
               zIndex: 10,
               animation: 'sketchIn 0.2s ease forwards',
             }}>
-              <button
-                className="cn-sans"
-                onClick={() => {
-                  setPlusMenuOpen(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 14px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--ink-soft)',
-                  cursor: 'pointer',
-                  fontSize: 14,
-                  letterSpacing: '0.04em',
-                  transition: 'all 0.2s ease',
-                  width: '100%',
-                  textAlign: 'left',
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.6)';
-                  (e.currentTarget as HTMLElement).style.color = 'var(--ink)';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = 'transparent';
-                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
-                }}
-              >
-                <FileAddOutlined style={{ fontSize: 16, color: 'var(--accent-warm)' }} />
-                添加文件
-              </button>
-              <button
-                className="cn-sans"
-                onClick={() => {
-                  setWebSearchEnabled(!webSearchEnabled);
-                  setPlusMenuOpen(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 14px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: webSearchEnabled ? 'rgba(201,168,124,0.1)' : 'transparent',
-                  color: webSearchEnabled ? 'var(--accent-warm)' : 'var(--ink-soft)',
-                  cursor: 'pointer',
-                  fontSize: 14,
-                  letterSpacing: '0.04em',
-                  transition: 'all 0.2s ease',
-                  width: '100%',
-                  textAlign: 'left',
-                }}
-                onMouseEnter={(e) => {
-                  if (!webSearchEnabled) {
+              <Tooltip title="支持 .docx、.pdf、.txt、.md 等格式" placement="right">
+                <button
+                  className="cn-sans"
+                  onClick={() => {
+                    setPlusMenuOpen(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--ink-soft)',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    letterSpacing: '0.04em',
+                    transition: 'all 0.2s ease',
+                    width: '100%',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => {
                     (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.6)';
                     (e.currentTarget as HTMLElement).style.color = 'var(--ink)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!webSearchEnabled) {
+                  }}
+                  onMouseLeave={(e) => {
                     (e.currentTarget as HTMLElement).style.background = 'transparent';
                     (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
-                  }
-                }}
-              >
-                <GlobalOutlined style={{ fontSize: 16, color: webSearchEnabled ? 'var(--accent-warm)' : 'var(--ink-faint)' }} />
-                {webSearchEnabled ? '联网搜索已开启' : '开启联网搜索'}
-              </button>
+                  }}
+                >
+                  <FileAddOutlined style={{ fontSize: 16, color: 'var(--accent-warm)' }} />
+                  添加文件
+                </button>
+              </Tooltip>
+              <Tooltip title="开启后，AI 将自动搜索互联网获取最新信息" placement="right">
+                <button
+                  className="cn-sans"
+                  onClick={() => {
+                    setWebSearchEnabled(!webSearchEnabled);
+                    setPlusMenuOpen(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: webSearchEnabled ? 'rgba(201,168,124,0.1)' : 'transparent',
+                    color: webSearchEnabled ? 'var(--accent-warm)' : 'var(--ink-soft)',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    letterSpacing: '0.04em',
+                    transition: 'all 0.2s ease',
+                    width: '100%',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!webSearchEnabled) {
+                      (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.6)';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--ink)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!webSearchEnabled) {
+                      (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                    }
+                  }}
+                >
+                  <GlobalOutlined style={{ fontSize: 16, color: webSearchEnabled ? 'var(--accent-warm)' : 'var(--ink-faint)' }} />
+                  联网搜索
+                </button>
+              </Tooltip>
             </div>
           )}
 
@@ -450,7 +475,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
 
                 <Dropdown
                   menu={{
-                    items: builtInModelOptions.map(m => ({
+                    items: modelOptions.map(m => ({
                       key: m.key,
                       label: m.label,
                       onClick: () => setSelectedModel(m.key),
@@ -496,49 +521,87 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                   />
                 </Tooltip>
 
-                {input.trim() && isAuthenticated && (
-                  <button
-                    onClick={handleSend}
-                    disabled={isStreaming}
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 10,
-                      background: 'var(--ink)',
-                      color: 'var(--paper)',
-                      border: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      cursor: isStreaming ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.3s ease',
-                      fontFamily: 'var(--font-sans)',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isStreaming) {
+                {isStreaming ? (
+                  <Tooltip title="终止对话" placement="top">
+                    <button
+                      onClick={handleStop}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: 'var(--ink)',
+                        color: 'var(--paper)',
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        fontFamily: 'var(--font-sans)',
+                      }}
+                      onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = 'var(--ink-soft)';
-                        (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
-                        (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(42,37,32,0.15)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
-                      (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
-                      (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                    }}
-                  >
-                    <SendOutlined style={{ fontSize: 16 }} />
-                  </button>
+                        (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)';
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
+                        (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+                      }}
+                    >
+                      <div style={{
+                        width: 12,
+                        height: 12,
+                        background: 'var(--paper)',
+                        borderRadius: 2,
+                      }} />
+                    </button>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="发送" placement="top">
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() || !isAuthenticated}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: input.trim() && isAuthenticated ? 'var(--ink)' : 'rgba(42,37,32,0.25)',
+                        color: input.trim() && isAuthenticated ? 'var(--paper)' : 'rgba(255,255,255,0.5)',
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        cursor: input.trim() && isAuthenticated ? 'pointer' : 'not-allowed',
+                        transition: 'all 0.3s ease',
+                        fontFamily: 'var(--font-sans)',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (input.trim() && isAuthenticated) {
+                          (e.currentTarget as HTMLElement).style.background = 'var(--ink-soft)';
+                          (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
+                          (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(42,37,32,0.15)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (input.trim() && isAuthenticated) {
+                          (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
+                          (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                          (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                        }
+                      }}
+                    >
+                      <SendOutlined style={{ fontSize: 16 }} />
+                    </button>
+                  </Tooltip>
                 )}
               </div>
             </div>
           </div>
         </div>
 
-        <p className="cn-tag" style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-muted)', marginTop: 12 }}>
-          AI 助手可能会产生不准确的信息，请核实重要信息。
-        </p>
+
       </div>
     </div>
   );

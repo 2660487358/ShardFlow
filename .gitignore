@@ -1,0 +1,39 @@
+# ===== Environment Variables (secrets) =====
+.env
+!.env.example
+shardflow-agent/.env
+shardflow-frontend/.env
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ===== Node.js =====
+node_modules/
+dist/
+
+# ===== Java / Maven =====
+target/
+build/
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.iml
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Docker =====
+docker/certs/
+
+# ===== Misc =====
+.superpowers/
+.codebuddy/

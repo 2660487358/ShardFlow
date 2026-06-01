@@ -1,8 +1,13 @@
-﻿import asyncio
+import asyncio
 import json
+import logging
 from typing import Any, AsyncIterator
 
+from starlette.requests import Request
+
 from app.layers.agent_core.langgraph_engine import react_graph
+
+logger = logging.getLogger(__name__)
 
 SSE_EVENT_TYPES = {
     "intent": "intent",
@@ -93,7 +98,7 @@ class ResponseFormatter:
 response_formatter = ResponseFormatter()
 
 
-async def stream_react_events(state: dict[str, Any]) -> AsyncIterator[str]:
+async def stream_react_events(state: dict[str, Any], request: Request | None = None) -> AsyncIterator[str]:
     formatter = response_formatter
 
     intent = state.get("intent", "general_qa")
@@ -101,16 +106,24 @@ async def stream_react_events(state: dict[str, Any]) -> AsyncIterator[str]:
 
     heartbeat_task: asyncio.Task[None] | None = None
     streaming = True
+    iteration_count = 0
 
     async def _heartbeat() -> None:
         while streaming:
             await asyncio.sleep(15)
             if streaming:
-                # heartbeat 只能通过 yield 发送，这里用队列中转
                 pass
 
     try:
         async for event in react_graph.astream_events(state, version="v2"):
+            iteration_count += 1
+
+            if request and iteration_count % 5 == 0:
+                if await request.is_disconnected():
+                    logger.info("Client disconnected, stopping stream")
+                    streaming = False
+                    break
+
             kind = event.get("event", "")
             node_name = event.get("name", "")
 

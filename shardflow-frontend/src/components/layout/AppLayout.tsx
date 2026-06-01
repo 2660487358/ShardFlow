@@ -5,12 +5,13 @@ import {
   MessageOutlined, HistoryOutlined, UserOutlined,
   LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
   ThunderboltOutlined, ApiOutlined,
-  RobotOutlined,
-  PlusOutlined,
-  BookOutlined,
+  PlusOutlined, BookOutlined, AppstoreOutlined,
+  SettingOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import { useStore } from '@/store';
 import LoginModal from '@/components/auth/LoginModal';
+import CustomModelModal from '@/components/settings/CustomModelModal';
+import AgentManageModal from '@/components/settings/AgentManageModal';
 import ShardFlowLogo from '@/components/common/ShardFlowLogo';
 
 const { Text } = Typography;
@@ -23,9 +24,9 @@ const mainNavItems = [
 
 const featureNavItems = [
   { key: 'skill', icon: <ThunderboltOutlined />, label: 'Skill 市场', path: '/mcp-tools' },
-  { key: 'mcp', icon: <ApiOutlined />, label: '接入 MCP', path: '/mcp-tools' },
-  { key: 'agent', icon: <RobotOutlined />, label: 'Agent 事例', path: '#' },
-  { key: 'knowledge', icon: <BookOutlined />, label: '知识库', path: '/kb' },
+  { key: 'mcp', icon: <ApiOutlined />, label: 'MCP 市场', path: '/mcp-tools' },
+  { key: 'knowledge', icon: <BookOutlined />, label: '知识库', path: '#' },
+  { key: 'workspace', icon: <AppstoreOutlined />, label: '工作区域', path: '/workspace' },
 ];
 
 export default function AppLayout() {
@@ -34,6 +35,8 @@ export default function AppLayout() {
   const { token, userId, logout } = useStore();
   const [collapsed, setCollapsed] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [customModelModalOpen, setCustomModelModalOpen] = useState(false);
+  const [agentManageModalOpen, setAgentManageModalOpen] = useState(false);
 
   const isAuthenticated = !!token;
 
@@ -196,6 +199,74 @@ export default function AppLayout() {
                 </div>
               </Tooltip>
             ))}
+            <Tooltip title="自定义模型" placement="right">
+              <div
+                onClick={() => {
+                  if (!isAuthenticated) { setLoginModalOpen(true); return; }
+                  setCustomModelModalOpen(true);
+                }}
+                className="nav-item"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  color: 'var(--ink-faint)',
+                  transition: 'all 0.3s ease',
+                  fontSize: 14,
+                  letterSpacing: '0.08em',
+                  position: 'relative',
+                  marginTop: 8,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-faint)';
+                }}
+              >
+                <span style={{ fontSize: 16 }}><SettingOutlined /></span>
+                <span>自定义模型</span>
+              </div>
+            </Tooltip>
+            <Tooltip title="Agent管理" placement="right">
+              <div
+                onClick={() => {
+                  if (!isAuthenticated) { setLoginModalOpen(true); return; }
+                  setAgentManageModalOpen(true);
+                }}
+                className="nav-item"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  color: 'var(--ink-faint)',
+                  transition: 'all 0.3s ease',
+                  fontSize: 14,
+                  letterSpacing: '0.08em',
+                  position: 'relative',
+                  marginTop: 4,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-faint)';
+                }}
+              >
+                <span style={{ fontSize: 16 }}><RobotOutlined /></span>
+                <span>Agent管理</span>
+              </div>
+            </Tooltip>
             <Tooltip title="添加新功能" placement="right">
               <div
                 onClick={() => {
@@ -213,7 +284,7 @@ export default function AppLayout() {
                   border: '1px dashed var(--ink-muted)',
                   transition: 'all 0.3s ease',
                   fontSize: 14,
-                  marginTop: 8,
+                  marginTop: 4,
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLElement).style.borderColor = 'var(--ink-soft)';
@@ -369,6 +440,8 @@ export default function AppLayout() {
       </div>
 
       <LoginModal open={loginModalOpen} onClose={() => setLoginModalOpen(false)} />
+      <CustomModelModal open={customModelModalOpen} onClose={() => setCustomModelModalOpen(false)} />
+      <AgentManageModal open={agentManageModalOpen} onClose={() => setAgentManageModalOpen(false)} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 package com.shardflow.common.exception;
 
+import cn.dev33.satoken.exception.NotLoginException;
 import com.shardflow.common.dto.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +41,13 @@ public class GlobalExceptionHandler {
     public Result<Void> handleIdempotencyViolation(IdempotencyViolationException e) {
         log.warn("Idempotency violation: {}", e.getMessage());
         return Result.fail(409, e.getMessage());
+    }
+
+    @ExceptionHandler(NotLoginException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public Result<Void> handleNotLogin(NotLoginException e) {
+        log.warn("Authentication failed: {}", e.getMessage());
+        return Result.fail(401, "Unauthorized");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

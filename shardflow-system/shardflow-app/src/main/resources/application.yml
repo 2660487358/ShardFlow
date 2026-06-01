@@ -2,19 +2,31 @@ spring:
   application:
     name: shardflow-system
   datasource:
-    url: jdbc:postgresql://localhost:5432/shardflow
-    username: shardflow
-    password: shardflow
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/shardflow}
+    username: ${SPRING_DATASOURCE_USERNAME:shardflow}
+    password: ${SPRING_DATASOURCE_PASSWORD:shardflow}
     driver-class-name: org.postgresql.Driver
 
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
 
 server:
-  port: 8200
+  port: ${SF_SYSTEM_SERVER_PORT:8200}
+
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  timeout: 86400
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
+  is-read-header: true
+  is-read-cookie: false
+  is-log: false
+  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
 
 logging:
   level:
-    com.shardflow: INFO
+    com.shardflow: ${SF_SYSTEM_LOG_LEVEL:INFO}
