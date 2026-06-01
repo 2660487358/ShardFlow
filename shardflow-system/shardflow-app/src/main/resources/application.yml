@@ -2,10 +2,10 @@ spring:
   application:
     name: shardflow-system
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/shardflow}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/shardflow?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
     username: ${SPRING_DATASOURCE_USERNAME:shardflow}
     password: ${SPRING_DATASOURCE_PASSWORD:shardflow}
-    driver-class-name: org.postgresql.Driver
+    driver-class-name: com.mysql.cj.jdbc.Driver
 
   data:
     redis:

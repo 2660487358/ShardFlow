@@ -20,8 +20,6 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 
-import com.shardflow.strategy.service.EmbeddingService;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -33,7 +31,6 @@ public class CallbackServiceImpl implements CallbackService {
     private final StrategyRepository strategyRepository;
     private final TaskRepository taskRepository;
     private final AuditLogRepository auditLogRepository;
-    private final EmbeddingService embeddingService;
 
     @Override
     @Transactional
@@ -72,19 +69,6 @@ public class CallbackServiceImpl implements CallbackService {
         strategy.setTaskType((String) body.getOrDefault("task_type", "general"));
         strategy.setSourceCombo(toJson(body.get("source_combo")));
         strategyRepository.insert(strategy);
-
-        // 异步生成 Embedding 向量
-        String embeddingText = (String) body.getOrDefault("query_pattern", body.getOrDefault("task_type", "general"));
-        embeddingService.generateAndStoreAsync(new EmbeddingService.StrategySaveHandler() {
-            @Override
-            public String getText() { return embeddingText; }
-            @Override
-            public void onEmbeddingGenerated(String vectorString) {
-                strategy.setEmbedding(vectorString);
-                strategyRepository.updateById(strategy);
-                log.info("Embedding generated for strategy: {}", strategy.getStrategyId());
-            }
-        });
 
         log.info("Strategy persisted: {}", strategy.getStrategyId());
         return Map.of("success", true, "strategy_id", strategy.getStrategyId());

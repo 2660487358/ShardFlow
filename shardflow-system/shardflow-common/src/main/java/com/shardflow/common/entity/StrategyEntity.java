@@ -31,9 +31,6 @@ public class StrategyEntity {
     @TableField("cost_ms")
     private int costMs;
 
-    @TableField("embedding")
-    private String embedding;
-
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private Instant createdAt;
 }
