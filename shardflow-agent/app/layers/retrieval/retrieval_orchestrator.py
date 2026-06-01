@@ -337,10 +337,10 @@ class RetrievalOrchestrator:
 
     # 意图 → 推荐检索源映射（意图驱动模式）
     INTENT_SOURCE_MAP: dict[str, list[str]] = {
-        "research":          ["web_search", "official_doc", "github"],
+        "research":          ["web_search", "official_doc", "github", "knowledge_base"],
         "web_search":        ["web_search"],
-        "knowledge_qa":      ["web_search", "official_doc"],
-        "write_doc":         ["web_search", "official_doc", "read_file"],
+        "knowledge_qa":      ["web_search", "official_doc", "knowledge_base"],
+        "write_doc":         ["web_search", "official_doc", "read_file", "knowledge_base"],
         "write_code":        ["github", "official_doc", "read_file"],
         "task_plan":         ["web_search", "official_doc"],
         "schedule":          ["web_search"],
@@ -388,13 +388,15 @@ class RetrievalOrchestrator:
         return await adapter.search(query)
 
     async def multi_source_search(self, query: str, user_id: str = "",
-                                  intent: str = "") -> list[SearchResult]:
+                                  intent: str = "",
+                                  kb_collection_name: str = "") -> list[SearchResult]:
         """多源并行检索。
 
         Args:
             query: 搜索查询
             user_id: 用户 ID（用于 profile 检索）
             intent: 意图类型（可选）。提供时按意图选择源，否则使用全局配置。
+            kb_collection_name: 知识库 Milvus collection 名（非空时挂载知识库检索）
 
         Returns:
             合并排序后的搜索结果列表
@@ -409,8 +411,19 @@ class RetrievalOrchestrator:
             logger.warning("No retrieval sources enabled")
             return []
 
+        # 动态挂载：如果提供了 kb_collection_name 且 knowledge_base 在源列表中
+        kb_task: asyncio.Task[list[SearchResult]] | None = None
+        if kb_collection_name and "knowledge_base" in sources:
+            from app.layers.retrieval.knowledge_searcher import knowledge_searcher
+            kb_task = asyncio.create_task(
+                knowledge_searcher.search(query, kb_collection_name),
+                name="search_knowledge_base",
+            )
+
         tasks: dict[str, asyncio.Task[list[SearchResult]]] = {}
         for source in sources:
+            if source == "knowledge_base":
+                continue  # handled separately above
             adapter = self._adapter_for(source)
             if adapter:
                 tasks[source] = asyncio.create_task(adapter.search(query), name=f"search_{source}")
@@ -423,6 +436,15 @@ class RetrievalOrchestrator:
                     valid.extend(results)
             except Exception as e:
                 logger.warning(f"Search source {source} failed: {e}")
+
+        # Collect KB results
+        if kb_task:
+            try:
+                kb_results = await kb_task
+                if isinstance(kb_results, list):
+                    valid.extend(kb_results)
+            except Exception as e:
+                logger.warning(f"Knowledge base search failed: {e}")
 
         return _result_parser.merge_results(_result_parser.rank_results(valid))
 
