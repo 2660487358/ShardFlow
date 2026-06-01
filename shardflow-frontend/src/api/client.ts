@@ -1,9 +1,9 @@
 import axios from 'axios';
-import { mockTasks, mockShard, mockSSEEvents } from './mock';
 import { useStore } from '@/store';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/agent/v1';
-const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL || '';
+const API_BASE = import.meta.env.VITE_SF_API_BASE_URL || '/agent/v1';
+const AUTH_BASE = import.meta.env.VITE_SF_AUTH_BASE_URL || '/auth';
+const SYSTEM_BASE = import.meta.env.VITE_SF_SYSTEM_BASE_URL || '/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -20,7 +20,7 @@ api.interceptors.request.use((config) => {
 export default api;
 
 export const systemApi = axios.create({
-  baseURL: '/api/v1',
+  baseURL: SYSTEM_BASE,
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -37,52 +37,139 @@ export const authApi = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-export async function login(username: string, password: string): Promise<{ token: string; refresh_token: string; expires_in: number }> {
-  const { data } = await authApi.post('/auth/login', { username, password });
-  return data;
+// ---- Auth API ----
+
+export interface AuthResult {
+  token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  user_id: string;
+  username?: string;
+  role?: string;
 }
+
+export async function login(username: string, password: string): Promise<AuthResult> {
+  const { data } = await authApi.post('/login', { username, password });
+  const inner = data.data || data;
+  return inner;
+}
+
+export async function register(username: string, password: string): Promise<AuthResult> {
+  const { data } = await authApi.post('/register', { username, password });
+  const inner = data.data || data;
+  return inner;
+}
+
+export async function refreshToken(refreshTokenValue: string): Promise<{ token: string }> {
+  const { data } = await authApi.post('/refresh', { refresh_token: refreshTokenValue });
+  const inner = data.data || data;
+  return inner;
+}
+
+// ---- 401 interceptor for auto token refresh ----
+
+let isRefreshing = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
+function onTokenRefreshed(token: string) {
+  refreshSubscribers.forEach(cb => cb(token));
+  refreshSubscribers = [];
+}
+
+function addRefreshSubscriber(cb: (token: string) => void) {
+  refreshSubscribers.push(cb);
+}
+
+function attachAuthInterceptor(instance: ReturnType<typeof axios.create>) {
+  instance.interceptors.response.use(
+    res => res,
+    async (error) => {
+      const originalRequest = error.config;
+      if (error.response?.status === 401 && !originalRequest._retry) {
+        if (isRefreshing) {
+          return new Promise(resolve => {
+            addRefreshSubscriber((token: string) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+              resolve(instance(originalRequest));
+            });
+          });
+        }
+        originalRequest._retry = true;
+        isRefreshing = true;
+        try {
+          const storedRefresh = localStorage.getItem('shardflow_refresh_token');
+          if (storedRefresh) {
+            const result = await refreshToken(storedRefresh);
+            localStorage.setItem('shardflow_token', result.token);
+            onTokenRefreshed(result.token);
+            originalRequest.headers.Authorization = `Bearer ${result.token}`;
+            return instance(originalRequest);
+          }
+        } catch {
+          localStorage.removeItem('shardflow_token');
+          localStorage.removeItem('shardflow_refresh_token');
+          localStorage.removeItem('shardflow_user_id');
+          window.dispatchEvent(new CustomEvent('shardflow:auth-expired'));
+        } finally {
+          isRefreshing = false;
+        }
+      }
+      return Promise.reject(error);
+    }
+  );
+}
+
+attachAuthInterceptor(api);
+attachAuthInterceptor(systemApi);
+
+// ---- Conversation API (SSE) ----
 
 export async function sendConversation(
   taskId: string,
   message: string,
   sessionId: string,
+  model: string,
   onEvent: (event: { type: string; data: Record<string, unknown> }) => void,
   onError: (err: Error) => void,
   onDone: () => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const token = localStorage.getItem('shardflow_token');
   const userId = localStorage.getItem('shardflow_user_id') || 'default';
 
+  const response = await fetch(`${API_BASE}/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      task_id: taskId,
+      message,
+      session_id: sessionId,
+      user_id: userId,
+      model,
+      stream: true,
+      kb_collection_name: useStore.getState().kbActiveMount.mounted
+        ? `kb_chunks_${useStore.getState().userId}`
+        : '',
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(`HTTP ${response.status}: ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let currentEventType = '';
+
   try {
-    const response = await fetch(`${API_BASE}/conversation`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        task_id: taskId,
-        message,
-        session_id: sessionId,
-        user_id: userId,
-        stream: true,
-        kb_collection_name: useStore.getState().kbActiveMount.mounted
-          ? `kb_chunks_${useStore.getState().userId}`
-          : '',
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No response body');
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentEventType = '';
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) { onDone(); break; }
@@ -105,62 +192,73 @@ export async function sendConversation(
         }
       }
     }
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    if (error.message.includes('HTTP') || error.message.includes('fetch') || error.message.includes('Failed')) {
-      replayMockSSE(onEvent, onDone);
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      onDone();
     } else {
-      onError(error);
+      onError(err instanceof Error ? err : new Error(String(err)));
     }
   }
 }
 
+// ---- Session API ----
+
 export async function fetchTasks(): Promise<unknown[]> {
-  try {
-    const { data } = await api.get('/sessions');
-    return data.sessions || data;
-  } catch {
-    return mockTasks;
-  }
+  const { data } = await api.get('/sessions');
+  return data.sessions || data;
 }
 
 export async function createTask(title: string): Promise<{ task_id: string }> {
-  try {
-    const { data } = await api.post('/sessions', { title });
-    return data;
-  } catch {
-    const taskId = `task-${Date.now()}`;
-    return { task_id: taskId };
-  }
+  const { data } = await api.post('/sessions', { title });
+  return data;
 }
+
+// ---- Shard API ----
 
 export async function fetchShard(taskId: string): Promise<unknown> {
-  try {
-    const { data } = await api.get(`/sessions/${taskId}/shards`);
-    return data;
-  } catch {
-    return mockShard;
-  }
+  const { data } = await systemApi.get(`/shards/${taskId}/latest`);
+  return data.data || data;
 }
 
-function replayMockSSE(
-  onEvent: (event: { type: string; data: Record<string, unknown> }) => void,
-  onDone: () => void,
-): void {
-  let index = 0;
-  const interval = setInterval(() => {
-    if (index >= mockSSEEvents.length) {
-      clearInterval(interval);
-      onDone();
-      return;
-    }
-    const event = mockSSEEvents[index];
-    onEvent({ type: event.type, data: event.data });
-    index++;
-  }, 600);
+// ---- Profile API ----
+
+export async function fetchProfile(userId: string): Promise<unknown> {
+  const { data } = await systemApi.get(`/profile/${userId}`);
+  return data.data || data;
 }
 
-// ── Knowledge Base API ──
+export async function updateProfile(userId: string, updates: Record<string, unknown>): Promise<unknown> {
+  const { data } = await systemApi.put(`/profile/${userId}`, updates);
+  return data.data || data;
+}
+
+// ---- Task History API ----
+
+export async function fetchTaskHistory(params?: { status?: string; limit?: number; offset?: number }): Promise<unknown> {
+  const { data } = await systemApi.get('/tasks', { params });
+  return data.data || data;
+}
+
+// ---- MCP Tools API ----
+
+export async function fetchMcpTools(status?: string): Promise<unknown> {
+  const { data } = await systemApi.get('/mcp/registry/tools', { params: status ? { status } : {} });
+  return data.data || data;
+}
+
+// ---- Strategy API ----
+
+export async function searchStrategies(taskType: string, query: string, limit?: number): Promise<unknown> {
+  const { data } = await systemApi.post('/strategies/search', { task_type: taskType, query, limit: limit || 5 });
+  return data.data || data;
+}
+
+export async function submitStrategyFeedback(strategyId: string, feedback: string, comment?: string): Promise<unknown> {
+  const { data } = await systemApi.post(`/strategies/${strategyId}/feedback`, { feedback, comment });
+  return data.data || data;
+}
+
+// ---- Knowledge Base API ----
 
 import type { KbCollection, KbDocument } from '@/types';
 
@@ -198,7 +296,7 @@ export async function uploadKbDocument(
 
   const token = localStorage.getItem('shardflow_token');
   const { data } = await axios.create({
-    baseURL: import.meta.env.VITE_SF_SYSTEM_BASE_URL || '/api/v1',
+    baseURL: SYSTEM_BASE,
     headers: { Authorization: `Bearer ${token}` },
   }).post(`/kb/collections/${collectionId}/documents`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

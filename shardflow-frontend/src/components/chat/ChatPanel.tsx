@@ -20,16 +20,16 @@ interface Props {
   isAuthenticated: boolean;
 }
 
-const modelOptions = [
-  { key: 'sf-2.5', label: 'SF 2.5 模型' },
-  { key: 'sf-2.0', label: 'SF 2.0 模型' },
-  { key: 'sf-1.5', label: 'SF 1.5 模型' },
+const builtInModelOptions = [
+  { key: 'gpt-4o', label: 'GPT-4o (复杂推理)' },
+  { key: 'gpt-4o-mini', label: 'GPT-4o Mini (快速响应)' },
+  { key: 'deepseek-chat', label: 'DeepSeek Chat' },
 ];
 
 export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
-  const { messages, addMessage, isStreaming, setStreaming, activeTaskId, activeSessionId } = useStore();
+  const { messages, addMessage, isStreaming, setStreaming, abortController, setAbortController, activeTaskId, activeSessionId, customModels } = useStore();
   const [input, setInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('sf-2.5');
+  const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
@@ -110,7 +110,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     }
   };
 
-  const currentModelLabel = modelOptions.find(m => m.key === selectedModel)?.label || 'SF 2.5 模型';
+  const currentModelLabel = builtInModelOptions.find(m => m.key === selectedModel)?.label || 'GPT-4o (复杂推理)';
 
   return (
     <div style={{
@@ -450,7 +450,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
 
                 <Dropdown
                   menu={{
-                    items: modelOptions.map(m => ({
+                    items: builtInModelOptions.map(m => ({
                       key: m.key,
                       label: m.label,
                       onClick: () => setSelectedModel(m.key),

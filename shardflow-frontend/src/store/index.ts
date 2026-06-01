@@ -23,9 +23,11 @@ interface AppState {
   // Chat
   messages: ChatMessage[];
   isStreaming: boolean;
+  abortController: AbortController | null;
   addMessage: (msg: ChatMessage) => void;
   clearMessages: () => void;
   setStreaming: (v: boolean) => void;
+  setAbortController: (c: AbortController | null) => void;
 
   // Task
   tasks: Task[];
@@ -84,15 +86,25 @@ interface AppState {
   setKbActiveMount: (state: Partial<KbMountState>) => void;
   setKbSearchResults: (results: KbSearchResult[]) => void;
   clearKbSearchResults: () => void;
+
+  // Custom Models
+  customModels: CustomModel[];
+  setCustomModels: (models: CustomModel[]) => void;
+
+  // Agent Configs
+  agentConfigs: AgentConfig[];
+  setAgentConfigs: (configs: AgentConfig[]) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
   // Chat
   messages: [],
   isStreaming: false,
+  abortController: null,
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   clearMessages: () => set({ messages: [] }),
   setStreaming: (v) => set({ isStreaming: v }),
+  setAbortController: (c) => set({ abortController: c }),
 
   // Task
   tasks: [],
@@ -161,4 +173,12 @@ export const useStore = create<AppState>((set) => ({
   setKbActiveMount: (state) => set((s) => ({ kbActiveMount: { ...s.kbActiveMount, ...state } })),
   setKbSearchResults: (results) => set({ kbSearchResults: results }),
   clearKbSearchResults: () => set({ kbSearchResults: [] }),
+
+  // Custom Models
+  customModels: [],
+  setCustomModels: (models) => set({ customModels: models }),
+
+  // Agent Configs
+  agentConfigs: [],
+  setAgentConfigs: (configs) => set({ agentConfigs: configs }),
 }));
