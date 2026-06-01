@@ -10,9 +10,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from llama_index.core import Settings as LlamaSettings
+from llama_index.core import Document, Settings as LlamaSettings
 from llama_index.core.node_parser import HierarchicalNodeParser
 from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.readers.file import PDFReader, DocxReader, MarkdownReader
 from llama_index.vector_stores.milvus import MilvusVectorStore
 from pymilvus import connections, utility, Collection
 
@@ -128,3 +129,101 @@ def create_node_parser() -> HierarchicalNodeParser:
         ],
         chunk_overlap=settings.kb_chunk_overlap,
     )
+
+
+# ── Document Readers ──
+
+def parse_document(file_path: str, file_type: str) -> list[Document]:
+    """Parse a document into LlamaIndex Documents using format-aware readers.
+
+    Args:
+        file_path: Absolute path to the uploaded file.
+        file_type: Lowercase extension without dot (pdf, docx, md, txt, py, java, ...)
+
+    Returns:
+        List of Document objects (usually 1 per file, chunking happens later).
+
+    Raises:
+        ValueError: If file_type is unsupported.
+        RuntimeError: If parsing fails.
+    """
+    ext = file_type.lower()
+
+    # ── PDF ──
+    if ext == "pdf":
+        try:
+            reader = PDFReader()
+            docs = reader.load_data(file=Path(file_path))
+            if not docs:
+                raise RuntimeError("PDFReader returned empty")
+            return docs
+        except Exception as e:
+            raise RuntimeError(f"PDF parse failed: {e}") from e
+
+    # ── DOCX ──
+    if ext == "docx":
+        try:
+            reader = DocxReader()
+            docs = reader.load_data(file=Path(file_path))
+            if not docs:
+                raise RuntimeError("DocxReader returned empty")
+            return docs
+        except Exception as e:
+            raise RuntimeError(f"DOCX parse failed: {e}") from e
+
+    # ── Markdown ──
+    if ext == "md":
+        try:
+            reader = MarkdownReader()
+            docs = reader.load_data(file=Path(file_path))
+            if not docs:
+                raise RuntimeError("MarkdownReader returned empty")
+            for doc in docs:
+                if doc.metadata is None:
+                    doc.metadata = {}
+                doc.metadata["parse_strategy"] = "heading"
+            return docs
+        except Exception as e:
+            raise RuntimeError(f"MD parse failed: {e}") from e
+
+    # ── Code files ──
+    CODE_EXTS = {"py", "java", "ts", "tsx", "js", "go", "rs"}
+    if ext in CODE_EXTS:
+        return _parse_code_file(file_path, ext)
+
+    # ── Plain text ──
+    TXT_EXTS = {"txt", "yaml", "yml", "json", "xml", "csv", "log"}
+    if ext in TXT_EXTS:
+        return _parse_text_file(file_path, ext)
+
+    raise ValueError(f"Unsupported file type: .{ext}")
+
+
+def _parse_code_file(file_path: str, ext: str) -> list[Document]:
+    """Parse code files — split by lines, preserve raw content for chunking."""
+    text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        raise RuntimeError(f"Code file is empty: {file_path}")
+    return [Document(
+        text=text,
+        metadata={
+            "parse_strategy": "ast",
+            "language": ext,
+            "filename": os.path.basename(file_path),
+        },
+    )]
+
+
+def _parse_text_file(file_path: str, ext: str) -> list[Document]:
+    """Parse plain text files — paragraph splitting by double newline."""
+    text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        raise RuntimeError(f"Text file is empty: {file_path}")
+    return [Document(
+        text=text,
+        metadata={
+            "parse_strategy": "paragraph",
+            "file_type": ext,
+            "filename": os.path.basename(file_path),
+        },
+    )]
