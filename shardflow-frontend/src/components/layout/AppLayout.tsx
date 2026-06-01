@@ -7,6 +7,7 @@ import {
   ThunderboltOutlined, ApiOutlined,
   RobotOutlined,
   PlusOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import { useStore } from '@/store';
 import LoginModal from '@/components/auth/LoginModal';
@@ -24,6 +25,7 @@ const featureNavItems = [
   { key: 'skill', icon: <ThunderboltOutlined />, label: 'Skill 市场', path: '/mcp-tools' },
   { key: 'mcp', icon: <ApiOutlined />, label: '接入 MCP', path: '/mcp-tools' },
   { key: 'agent', icon: <RobotOutlined />, label: 'Agent 事例', path: '#' },
+  { key: 'knowledge', icon: <BookOutlined />, label: '知识库', path: '/kb' },
 ];
 
 export default function AppLayout() {

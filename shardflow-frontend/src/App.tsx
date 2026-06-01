@@ -9,6 +9,8 @@ import McpToolsPage from './pages/McpToolsPage';
 import ProfilePage from './pages/ProfilePage';
 import TaskPage from './pages/TaskPage';
 import NotFoundPage from './pages/NotFoundPage';
+import KnowledgePage from './pages/KnowledgePage';
+import KnowledgeDetailPage from './pages/KnowledgeDetailPage';
 
 const fontFamily = "'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', 'FangSong', serif";
 
@@ -99,6 +101,8 @@ export default function App() {
             <Route path="tasks" element={<TaskPage />} />
             <Route path="mcp-tools" element={<McpToolsPage />} />
             <Route path="profile" element={<ProfilePage />} />
+            <Route path="kb" element={<KnowledgePage />} />
+            <Route path="kb/:id" element={<KnowledgeDetailPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
