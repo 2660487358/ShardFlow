@@ -71,3 +71,42 @@ class TestParseDocument:
                 parse_document(tmp_path, "txt")
         finally:
             os.unlink(tmp_path)
+
+
+import asyncio
+import uuid
+
+
+class TestProcessDocument:
+    """End-to-end processing pipeline tests (requires Milvus)."""
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_process_markdown_e2e(self):
+        from app.layers.retrieval.kb_pipeline import connect_milvus
+        if not connect_milvus():
+            pytest.skip("Milvus not available")
+
+        collection_name = f"test_kb_{uuid.uuid4().hex[:8]}"
+
+        with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as f:
+            f.write("# Test Doc\n\n## Section A\nThis is content for section A.\n\n## Section B\nThis is content for section B.\n")
+            tmp_path = f.name
+
+        try:
+            from app.layers.retrieval.kb_pipeline import process_document
+            result = await process_document(
+                file_path=tmp_path,
+                file_type="md",
+                collection_name=collection_name,
+                document_id="test-doc-1",
+                user_id="test-user",
+            )
+            assert result["success"] is True, f"Processing failed: {result.get('error')}"
+            assert result["chunk_count"] > 0
+            assert result["elapsed_ms"] > 0
+            assert result["elapsed_ms"] < 10_000, f"Too slow: {result['elapsed_ms']}ms"
+        finally:
+            from app.layers.retrieval.kb_pipeline import drop_collection
+            os.unlink(tmp_path)
+            drop_collection(collection_name)

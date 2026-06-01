@@ -7,6 +7,7 @@ Handles:
 """
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -227,3 +228,107 @@ def _parse_text_file(file_path: str, ext: str) -> list[Document]:
             "filename": os.path.basename(file_path),
         },
     )]
+
+
+# ── Processing Pipeline ──
+
+from typing import Callable
+
+from llama_index.core.ingestion import IngestionPipeline
+
+ProgressCallback = Callable[[str, dict], None]  # (status, metadata) -> None
+
+
+async def process_document(
+    file_path: str,
+    file_type: str,
+    collection_name: str,
+    document_id: str,
+    user_id: str,
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
+    """Full document processing pipeline: parse → chunk → embed → store.
+
+    Args:
+        file_path: Absolute path to uploaded document.
+        file_type: Lowercase extension (pdf, docx, md, txt, py, ...).
+        collection_name: Milvus collection name.
+        document_id: MySQL kb_document.id for tracking.
+        user_id: User ID for metadata tagging.
+        progress_callback: Optional callback(status, metadata) for status updates.
+
+    Returns:
+        dict with keys: success, chunk_count, elapsed_ms, error (if failed).
+    """
+    start_time = time.monotonic()
+    result = {
+        "success": False,
+        "document_id": document_id,
+        "chunk_count": 0,
+        "elapsed_ms": 0,
+        "error": None,
+    }
+
+    def _notify(status: str, extra: dict | None = None):
+        if progress_callback:
+            meta = {"document_id": document_id, "status": status, **(extra or {})}
+            progress_callback(status, meta)
+
+    try:
+        # Step 1: Parse document
+        _notify("PARSING")
+        init_llama_index()
+        docs = parse_document(file_path, file_type)
+        if not docs:
+            raise RuntimeError("Document parsing produced zero documents")
+
+        # Step 2: Create node parser
+        _notify("CHUNKING")
+        node_parser = create_node_parser()
+
+        # Step 3: Create vector store
+        _notify("EMBEDDING")
+        vector_store = get_vector_store(collection_name)
+
+        # Step 4: Set up ingestion pipeline
+        pipeline = IngestionPipeline(
+            transformations=[
+                node_parser,
+                LlamaSettings.embed_model,
+            ],
+            vector_store=vector_store,
+        )
+
+        # Step 5: Run pipeline
+        import asyncio
+        nodes = await asyncio.to_thread(pipeline.run, documents=docs)
+
+        # Step 6: Tag nodes with metadata
+        chunk_count = 0
+        for i, node in enumerate(nodes):
+            if node.metadata is None:
+                node.metadata = {}
+            node.metadata["document_id"] = document_id
+            node.metadata["collection_id"] = collection_name
+            node.metadata["user_id"] = user_id
+            node.metadata["chunk_index"] = i
+            filename_val = os.path.basename(file_path)
+            node.metadata["filename"] = filename_val
+            chunk_count += 1
+
+        elapsed = (time.monotonic() - start_time) * 1000
+        result["success"] = True
+        result["chunk_count"] = chunk_count
+        result["elapsed_ms"] = elapsed
+
+        _notify("READY", {"chunk_count": chunk_count, "elapsed_ms": elapsed})
+        logger.info("Document %s processed: %d chunks in %.0fms", document_id, chunk_count, elapsed)
+        return result
+
+    except Exception as e:
+        elapsed = (time.monotonic() - start_time) * 1000
+        result["error"] = str(e)
+        result["elapsed_ms"] = elapsed
+        _notify("ERROR", {"error": str(e)})
+        logger.error("Document %s processing failed: %s (%.0fms)", document_id, e, elapsed)
+        return result
