@@ -63,14 +63,14 @@ services:
     ports:
       - "8081:8200"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-primary:5432/${SF_INFRA_POSTGRES_DB:-shardflow}
-      - SPRING_DATASOURCE_USERNAME=${SF_INFRA_POSTGRES_USER:-shardflow}
-      - SPRING_DATASOURCE_PASSWORD=${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${SF_INFRA_MYSQL_DATABASE:-shardflow}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=${SF_INFRA_MYSQL_USER:-shardflow}
+      - SPRING_DATASOURCE_PASSWORD=${SF_INFRA_MYSQL_PASSWORD:-shardflow}
       - SPRING_DATA_REDIS_HOST=redis-sentinel
       - SF_SYSTEM_JAVA_API_KEY=${SF_AGENT_JAVA_API_KEY:-}
       - SA_TOKEN_JWT_SECRET_KEY=${SA_TOKEN_JWT_SECRET_KEY:-ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
     depends_on:
-      postgres-primary:
+      mysql:
         condition: service_healthy
     restart: unless-stopped
     deploy:
@@ -102,28 +102,28 @@ services:
     restart: unless-stopped
 
   # =========================================================================
-  # PostgreSQL (primary + replica for HA)
+  # MySQL (business data)
   # =========================================================================
-  postgres-primary:
-    image: pgvector/pgvector:pg18
+  mysql:
+    image: mysql:8.0
     ports:
-      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
+      - "${SF_INFRA_MYSQL_PORT:-3306}:3306"
     environment:
-      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
-      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
-      POSTGRES_DB: ${SF_INFRA_POSTGRES_DB:-shardflow}
+      MYSQL_ROOT_PASSWORD: ${SF_INFRA_MYSQL_ROOT_PASSWORD:-shardflow}
+      MYSQL_DATABASE: ${SF_INFRA_MYSQL_DATABASE:-shardflow}
+      MYSQL_USER: ${SF_INFRA_MYSQL_USER:-shardflow}
+      MYSQL_PASSWORD: ${SF_INFRA_MYSQL_PASSWORD:-shardflow}
     volumes:
-      - pg-primary-data:/var/lib/postgresql/data
-      - ../shardflow-system/shardflow-shard/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shardflow"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
     restart: unless-stopped
     deploy:
       resources:
-        limits: { cpus: "2", memory: "8G" }
+        limits: { cpus: "1", memory: "2G" }
 
   # =========================================================================
   # Redis Sentinel (3 nodes for HA)
@@ -180,5 +180,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  pg-primary-data:
+  mysql-data:
   minio-data:

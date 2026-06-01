@@ -1,24 +1,6 @@
 version: "3.9"
 
 services:
-  postgres:
-    image: pgvector/pgvector:pg18
-    ports:
-      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
-    environment:
-      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
-      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
-      POSTGRES_DB: ${SF_INFRA_POSTGRES_DB:-shardflow}
-    volumes:
-      - pg-data:/var/lib/postgresql/data
-      - ../shardflow-system/shardflow-shard/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shardflow"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
   redis:
     image: redis:7-alpine
     ports:
@@ -38,14 +20,14 @@ services:
     ports:
       - "${SF_SYSTEM_SERVER_PORT:-8200}:8200"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${SF_INFRA_POSTGRES_DB:-shardflow}
-      SPRING_DATASOURCE_USERNAME: ${SF_INFRA_POSTGRES_USER:-shardflow}
-      SPRING_DATASOURCE_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${SF_INFRA_MYSQL_DATABASE:-shardflow}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ${SF_INFRA_MYSQL_USER:-shardflow}
+      SPRING_DATASOURCE_PASSWORD: ${SF_INFRA_MYSQL_PASSWORD:-shardflow}
       SPRING_DATA_REDIS_HOST: redis
       SF_SYSTEM_JAVA_API_KEY: ${SF_AGENT_JAVA_API_KEY:-}
       SA_TOKEN_JWT_SECRET_KEY: ${SA_TOKEN_JWT_SECRET_KEY:-ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -157,7 +139,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  pg-data:
   milvus-data:
   etcd-data:
   minio-data:

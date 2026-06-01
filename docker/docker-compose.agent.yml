@@ -14,8 +14,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
     volumes:
       - ../shardflow-agent/app:/app/app
     restart: unless-stopped
@@ -26,21 +24,6 @@ services:
       - "${SF_INFRA_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
-  postgres:
-    image: pgvector/pgvector:pg18
-    ports:
-      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
-    environment:
-      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
-      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
-      POSTGRES_DB: ${SF_INFRA_POSTGRES_DB:-shardflow}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shardflow"]
       interval: 5s
       timeout: 3s
       retries: 5
