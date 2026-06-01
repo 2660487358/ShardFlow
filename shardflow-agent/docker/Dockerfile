@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Security: create non-root user
+# 安全：创建非 root 用户
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -e ".[dev]"
 
 COPY . .
 
-# Security: switch to non-root user
+# 安全：切换至非 root 用户
 RUN chown -R appuser:appuser /app
 USER appuser
 

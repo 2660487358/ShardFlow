@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   redis:
-    image: redis:7-alpine
+    image: redis:7.4
     ports:
       - "${SF_INFRA_REDIS_PORT:-6379}:6379"
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
@@ -121,7 +121,7 @@ services:
     restart: unless-stopped
 
   mysql:
-    image: mysql:8.0
+    image: mysql:8.0.33
     ports:
       - "${SF_INFRA_MYSQL_PORT:-3306}:3306"
     environment:

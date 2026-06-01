@@ -1,9 +1,9 @@
-# Production Docker Compose — ShardFlow full stack
+# 生产环境 Docker Compose — ShardFlow 全栈部署
 version: "3.9"
 
 services:
   # =========================================================================
-  # Python Inference Layer (2 replicas for HA)
+  # Python 推理层（2 副本高可用）
   # =========================================================================
   python-inference-1:
     build:
@@ -54,7 +54,7 @@ services:
         limits: { cpus: "2", memory: "4G" }
 
   # =========================================================================
-  # Java Peripheral Service (2 replicas)
+  # Java 外围服务（2 副本）
   # =========================================================================
   java-service-1: &java-service
     build:
@@ -83,7 +83,7 @@ services:
       - "8082:8200"
 
   # =========================================================================
-  # Nginx API Gateway
+  # Nginx API 网关
   # =========================================================================
   nginx-gateway:
     image: nginx:1.25-alpine
@@ -102,7 +102,7 @@ services:
     restart: unless-stopped
 
   # =========================================================================
-  # MySQL (business data)
+  # MySQL（业务数据）
   # =========================================================================
   mysql:
     image: mysql:8.0
@@ -126,7 +126,7 @@ services:
         limits: { cpus: "1", memory: "2G" }
 
   # =========================================================================
-  # Redis Sentinel (3 nodes for HA)
+  # Redis Sentinel（3 节点高可用）
   # =========================================================================
   redis-node-1: &redis-node
     image: redis:7-alpine
@@ -164,7 +164,7 @@ services:
     restart: unless-stopped
 
   # =========================================================================
-  # MinIO object storage
+  # MinIO 对象存储
   # =========================================================================
   minio:
     image: minio/minio:latest

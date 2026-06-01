@@ -9,6 +9,7 @@ class Settings(BaseSettings):
         "extra": "allow",
     }
 
+    # ── 基础配置 ──
     app_env: str = "dev"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
@@ -19,15 +20,19 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     shard_cache_ttl: int = 1800
 
+    # ── 服务间认证 ──
     java_api_key: str = ""
 
+    # ── 外部检索源 ──
     stackexchange_api_key: str = ""
     github_token: str = ""
 
+    # ── 检索行为配置 ──
     retrieval_sources_enabled: str = "official_doc,stackoverflow,github"
     retrieval_timeout: float = 10.0
     retrieval_fallback_to_mock: bool = True
 
+    # ── 知识库（Milvus + Embedding）──
     milvus_host: str = "localhost"
     milvus_port: int = 19530
     milvus_db_name: str = "shardflow_kb"
