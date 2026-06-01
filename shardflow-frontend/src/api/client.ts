@@ -155,3 +155,58 @@ function replayMockSSE(
     index++;
   }, 600);
 }
+
+// ── Knowledge Base API ──
+
+import type { KbCollection, KbDocument } from '@/types';
+
+export async function fetchKbCollections(): Promise<KbCollection[]> {
+  const { data } = await systemApi.get('/kb/collections');
+  return data.data || data;
+}
+
+export async function createKbCollection(payload: { name: string; description?: string }): Promise<KbCollection> {
+  const { data } = await systemApi.post('/kb/collections', payload);
+  return data.data || data;
+}
+
+export async function updateKbCollection(id: string, payload: { name?: string; description?: string }): Promise<KbCollection> {
+  const { data } = await systemApi.put(`/kb/collections/${id}`, payload);
+  return data.data || data;
+}
+
+export async function deleteKbCollection(id: string): Promise<void> {
+  await systemApi.delete(`/kb/collections/${id}`);
+}
+
+export async function fetchKbDocuments(collectionId: string): Promise<KbDocument[]> {
+  const { data } = await systemApi.get(`/kb/collections/${collectionId}/documents`);
+  return data.data || data;
+}
+
+export async function uploadKbDocument(
+  collectionId: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<KbDocument> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = localStorage.getItem('shardflow_token');
+  const { data } = await axios.create({
+    baseURL: import.meta.env.VITE_SF_SYSTEM_BASE_URL || '/api/v1',
+    headers: { Authorization: `Bearer ${token}` },
+  }).post(`/kb/collections/${collectionId}/documents`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (e) => {
+      if (e.total && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    },
+  });
+  return data.data || data;
+}
+
+export async function deleteKbDocument(documentId: string): Promise<void> {
+  await systemApi.delete(`/kb/documents/${documentId}`);
+}
