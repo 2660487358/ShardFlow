@@ -1,7 +1,7 @@
 """Strategy Engine: semantic retrieval, scoring, reuse decisions.
 
 Phase 2 update: search_strategy now proxies through Java kb-strategy service
-for pgvector semantic search. Local cache serves as fallback.
+for Milvus semantic search. Local cache serves as fallback.
 """
 from typing import Any
 
@@ -227,7 +227,7 @@ DEFAULT_STRATEGIES: dict[str, dict[str, Any]] = {
 class StrategyEngine:
     """Strategy semantic retrieval and reuse engine.
 
-    Search path: Java kb-strategy pgvector API → local cache fallback.
+    Search path: Java kb-strategy API (Milvus) → local cache fallback.
     """
 
     def __init__(self) -> None:
@@ -236,7 +236,7 @@ class StrategyEngine:
     async def search_strategy(self, task_type: str, query_pattern: str,
                               query_embedding: list[float] | None = None,
                               limit: int = 5) -> list[tuple[StrategyRecord, float]]:
-        """Search strategies via Java proxy (pgvector), fall back to local cache."""
+        """Search strategies via Java proxy (Milvus), fall back to local cache."""
         # Try Java kb-strategy API first
         try:
             proxy_results = await callback_client.search_strategies(

@@ -63,7 +63,7 @@ class CallbackClient:
     async def search_strategies(self, task_type: str, query: str,
                                 embedding: list[float] | None = None,
                                 limit: int = 5) -> list[dict[str, Any]]:
-        """Proxy semantic search through Java kb-strategy pgvector API."""
+        """Proxy semantic search through Java kb-strategy API (Milvus backend)."""
         client = await self._get_client()
         body: dict[str, Any] = {
             "task_type": task_type,
