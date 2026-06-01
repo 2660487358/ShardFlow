@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { mockTasks, mockShard, mockSSEEvents } from './mock';
+import { useStore } from '@/store';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/agent/v1';
 const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL || '';
@@ -65,6 +66,9 @@ export async function sendConversation(
         session_id: sessionId,
         user_id: userId,
         stream: true,
+        kb_collection_name: useStore.getState().kbActiveMount.mounted
+          ? `kb_chunks_${useStore.getState().userId}`
+          : '',
       }),
     });
 

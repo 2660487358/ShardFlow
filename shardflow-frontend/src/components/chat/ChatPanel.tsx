@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import { sendConversation } from '@/api/client';
 import { useStore } from '@/store';
 import ShardFlowLogo from '@/components/common/ShardFlowLogo';
+import KbMountSwitch from '@/components/knowledge/KbMountSwitch';
 import type { ChatMessage, SSEEvent } from '@/types';
 
 const { TextArea } = Input;
@@ -377,6 +378,9 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             (e.currentTarget as HTMLElement).style.boxShadow = 'none';
           }}
           >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <KbMountSwitch />
+            </div>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
               <Button
                 type="text"
