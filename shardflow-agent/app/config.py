@@ -30,5 +30,21 @@ class Settings(BaseSettings):
     # 检索源降级：true 时 API 失败自动降级到 Mock 源
     retrieval_fallback_to_mock: bool = True
 
+    # ── Knowledge Base (RAG) ──
+    milvus_host: str = "localhost"
+    milvus_port: int = 19530
+    milvus_db_name: str = "shardflow_kb"
+    kb_embedding_model: str = "text-embedding-3-small"
+    kb_embedding_dim: int = 768
+    kb_chunk_size: int = 512
+    kb_chunk_overlap: int = 64
+    kb_embedding_batch_size: int = 20
+    kb_retrieval_top_k: int = 10
+    kb_retrieval_similarity_threshold: float = 0.65
+    kb_upload_dir: str = "./uploads/kb"
+    kb_supported_extensions: str = ".pdf,.docx,.md,.txt,.py,.java,.ts,.tsx,.js,.go,.rs,.yaml,.yml,.json,.xml"
+    kb_max_file_size_mb: int = 20
+    kb_enabled: bool = True
+
 
 settings = Settings()
