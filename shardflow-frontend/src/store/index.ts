@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, Task, ContextShard, StrategyRecord, UserProfile } from '@/types';
+import type { ChatMessage, Task, ContextShard, StrategyRecord, UserProfile, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult } from '@/types';
 
 interface McpTool {
   tool_id: string;
@@ -73,6 +73,17 @@ interface AppState {
   setTheme: (t: 'light' | 'dark') => void;
   setSidebarCollapsed: (v: boolean) => void;
   setPanelVisibility: (key: string, v: boolean) => void;
+
+  // Knowledge Base
+  kbCollections: KbCollection[];
+  kbLoading: boolean;
+  kbActiveMount: KbMountState;
+  kbSearchResults: KbSearchResult[];
+  setKbCollections: (collections: KbCollection[]) => void;
+  setKbLoading: (v: boolean) => void;
+  setKbActiveMount: (state: Partial<KbMountState>) => void;
+  setKbSearchResults: (results: KbSearchResult[]) => void;
+  clearKbSearchResults: () => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -139,4 +150,15 @@ export const useStore = create<AppState>((set) => ({
   setPanelVisibility: (key, v) => set((s) => ({
     panelVisibility: { ...s.panelVisibility, [key]: v },
   })),
+
+  // Knowledge Base
+  kbCollections: [],
+  kbLoading: false,
+  kbActiveMount: { mounted: false, collectionId: null, collectionName: '' },
+  kbSearchResults: [],
+  setKbCollections: (collections) => set({ kbCollections: collections }),
+  setKbLoading: (v) => set({ kbLoading: v }),
+  setKbActiveMount: (state) => set((s) => ({ kbActiveMount: { ...s.kbActiveMount, ...state } })),
+  setKbSearchResults: (results) => set({ kbSearchResults: results }),
+  clearKbSearchResults: () => set({ kbSearchResults: [] }),
 }));

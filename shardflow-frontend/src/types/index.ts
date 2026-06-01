@@ -88,3 +88,76 @@ export interface StrategyRecord {
   success_score: number;
   cost_ms: number;
 }
+
+// ── custom model types ──
+
+export interface CustomModel {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  api_key_id: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface AgentConfig {
+  id: string;
+  user_id: string;
+  model_id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  temperature: number;
+  max_tokens: number;
+  tools: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Knowledge Base Types ──
+
+export interface KbCollection {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  icon: string;
+  status: 'ACTIVE' | 'ARCHIVED';
+  doc_count: number;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KbDocument {
+  id: string;
+  collection_id: string;
+  user_id: string;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  status: 'PENDING' | 'PARSING' | 'EMBEDDING' | 'READY' | 'ERROR';
+  error_msg?: string;
+  created_at: string;
+}
+
+export interface KbSearchResult {
+  source: 'knowledge_base';
+  title: string;
+  snippet: string;
+  url: string;
+  relevance_score: number;
+  metadata: {
+    document_id: string;
+    collection_name: string;
+    chunk_index: number;
+    node_id: string;
+  };
+}
+
+export interface KbMountState {
+  mounted: boolean;
+  collectionId: string | null;
+  collectionName: string;
+}
