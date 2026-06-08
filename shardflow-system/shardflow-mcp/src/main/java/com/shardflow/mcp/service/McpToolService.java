@@ -9,13 +9,13 @@ public interface McpToolService {
 
     List<McpToolEntity> listTools(String status);
 
-    Optional<McpToolEntity> getTool(String toolId);
+    Optional<McpToolEntity> getTool(String toolCode);
 
     McpToolEntity registerTool(McpToolEntity tool);
 
-    Optional<McpToolEntity> updateTool(String toolId, McpToolEntity updates);
+    Optional<McpToolEntity> updateTool(String toolCode, McpToolEntity updates);
 
-    boolean deleteTool(String toolId);
+    boolean deleteTool(String toolCode);
 
     List<Map<String, Object>> healthCheck();
 }

@@ -30,9 +30,20 @@ public class McpToolServiceImpl implements McpToolService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
     private final Map<String, Integer> failureCounters = new HashMap<>();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
-        .build();
+    private volatile HttpClient httpClient;
+
+    private HttpClient getHttpClient() {
+        if (httpClient == null) {
+            synchronized (this) {
+                if (httpClient == null) {
+                    httpClient = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(5))
+                        .build();
+                }
+            }
+        }
+        return httpClient;
+    }
 
     @Override
     public List<McpToolEntity> listTools(String status) {
@@ -46,15 +57,16 @@ public class McpToolServiceImpl implements McpToolService {
     }
 
     @Override
-    public Optional<McpToolEntity> getTool(String toolId) {
-        return Optional.ofNullable(repository.selectById(toolId));
+    public Optional<McpToolEntity> getTool(String toolCode) {
+        return Optional.ofNullable(repository.selectOne(
+            new LambdaQueryWrapper<McpToolEntity>().eq(McpToolEntity::getToolCode, toolCode)));
     }
 
     @Override
     @Transactional
     public McpToolEntity registerTool(McpToolEntity tool) {
-        if (tool.getToolId() == null || tool.getToolId().isBlank()) {
-            tool.setToolId("mcp-" + tool.getToolName().replaceAll("[^a-zA-Z0-9]", "-").toLowerCase());
+        if (tool.getToolCode() == null || tool.getToolCode().isBlank()) {
+            tool.setToolCode("mcp-" + tool.getToolName().replaceAll("[^a-zA-Z0-9]", "-").toLowerCase());
         }
         tool.setStatus("ACTIVE");
         repository.insert(tool);
@@ -63,8 +75,9 @@ public class McpToolServiceImpl implements McpToolService {
 
     @Override
     @Transactional
-    public Optional<McpToolEntity> updateTool(String toolId, McpToolEntity updates) {
-        McpToolEntity existing = repository.selectById(toolId);
+    public Optional<McpToolEntity> updateTool(String toolCode, McpToolEntity updates) {
+        McpToolEntity existing = repository.selectOne(
+            new LambdaQueryWrapper<McpToolEntity>().eq(McpToolEntity::getToolCode, toolCode));
         if (existing == null) return Optional.empty();
         if (updates.getToolName() != null) existing.setToolName(updates.getToolName());
         if (updates.getDescription() != null) existing.setDescription(updates.getDescription());
@@ -79,8 +92,9 @@ public class McpToolServiceImpl implements McpToolService {
 
     @Override
     @Transactional
-    public boolean deleteTool(String toolId) {
-        McpToolEntity tool = repository.selectById(toolId);
+    public boolean deleteTool(String toolCode) {
+        McpToolEntity tool = repository.selectOne(
+            new LambdaQueryWrapper<McpToolEntity>().eq(McpToolEntity::getToolCode, toolCode));
         if (tool == null) return false;
         tool.setStatus("INACTIVE");
         repository.updateById(tool);
@@ -103,7 +117,7 @@ public class McpToolServiceImpl implements McpToolService {
                     .timeout(Duration.ofSeconds(5))
                     .GET()
                     .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = getHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
                 long latency = System.currentTimeMillis() - start;
                 result.put("healthy", response.statusCode() == 200);
                 result.put("latency_ms", latency);
@@ -116,7 +130,7 @@ public class McpToolServiceImpl implements McpToolService {
         return results;
     }
 
-    @Scheduled(fixedRate = 300000)
+    @Scheduled(fixedRate = 300000, initialDelay = 60000)
     public void scheduledHealthCheck() {
         List<McpToolEntity> tools = repository.selectList(
             new LambdaQueryWrapper<McpToolEntity>().eq(McpToolEntity::getStatus, "ACTIVE")
@@ -128,9 +142,9 @@ public class McpToolServiceImpl implements McpToolService {
                     .timeout(Duration.ofSeconds(5))
                     .GET()
                     .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = getHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
-                    failureCounters.remove(tool.getToolId());
+                    failureCounters.remove(tool.getToolCode());
                     if ("ERROR".equals(tool.getStatus())) {
                         updateToolStatus(tool, "ACTIVE");
                     }
@@ -146,7 +160,7 @@ public class McpToolServiceImpl implements McpToolService {
     }
 
     private void recordFailure(McpToolEntity tool) {
-        int count = failureCounters.merge(tool.getToolId(), 1, Integer::sum);
+        int count = failureCounters.merge(tool.getToolCode(), 1, Integer::sum);
         if (count >= 3) {
             updateToolStatus(tool, "ERROR");
         }
@@ -157,12 +171,12 @@ public class McpToolServiceImpl implements McpToolService {
         repository.updateById(tool);
         try {
             String payload = objectMapper.writeValueAsString(Map.of(
-                "tool_id", tool.getToolId(),
+                "tool_code", tool.getToolCode(),
                 "tool_name", tool.getToolName(),
                 "old_status", tool.getStatus(),
                 "new_status", newStatus
             ));
-            redisTemplate.convertAndSend("shardflow:" + tool.getToolId() + ":events", payload);
+            redisTemplate.convertAndSend("shardflow:" + tool.getToolCode() + ":events", payload);
         } catch (JsonProcessingException e) {
             log.warn("Failed to publish MCP status event", e);
         }

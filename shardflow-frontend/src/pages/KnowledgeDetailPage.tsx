@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Table, Button, Upload, Typography, Tag, message, Space, Progress } from 'antd';
-import { UploadOutlined, ArrowLeftOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Table, Button, Upload, Typography, Tag, message, Space, Progress, Tooltip } from 'antd';
+import { UploadOutlined, ArrowLeftOutlined, DeleteOutlined, LinkOutlined, DisconnectOutlined } from '@ant-design/icons';
 import { fetchKbDocuments, uploadKbDocument, deleteKbDocument } from '@/api/client';
 import { useStore } from '@/store';
 import type { KbDocument } from '@/types';
@@ -21,13 +21,24 @@ const statusLabels: Record<string, string> = {
 export default function KnowledgeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { kbCollections, token } = useStore();
+  const { kbCollections, token, kbActiveMount, setKbActiveMount } = useStore();
   const [docs, setDocs] = useState<KbDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const collection = kbCollections.find((c) => c.id === id);
+  const collection = (Array.isArray(kbCollections) ? kbCollections : []).find((c) => c.id === id);
+  const isMounted = kbActiveMount.mounted && kbActiveMount.collectionId === id;
+
+  const handleMountToggle = () => {
+    if (isMounted) {
+      setKbActiveMount({ mounted: false, collectionId: null, collectionName: '' });
+      message.info('已取消挂载');
+    } else if (collection) {
+      setKbActiveMount({ mounted: true, collectionId: collection.id, collectionName: collection.name });
+      message.success(`已将「${collection.name}」挂载到当前会话`);
+    }
+  };
 
   const loadDocs = async () => {
     if (!id) return;
@@ -102,18 +113,43 @@ export default function KnowledgeDetailPage() {
   }
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1000, margin: '0 auto' }}>
-      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/kb')} style={{ marginBottom: 16 }}>
-        返回知识库列表
-      </Button>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>{collection?.name || '知识库'} · 文档管理</Title>
-        <Upload beforeUpload={handleUpload} showUploadList={false} accept=".pdf,.docx,.md,.txt,.py,.java,.ts,.tsx,.js,.go,.rs,.yaml,.yml,.json,.xml">
-          <Button type="primary" icon={<UploadOutlined />} loading={uploading}>上传文档</Button>
-        </Upload>
+    <div style={{ padding: '32px 40px', height: '100%', overflow: 'auto' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/kb')} style={{ marginBottom: 16 }}>
+          返回知识库列表
+        </Button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Title level={3} style={{ margin: 0 }}>{collection?.name || '知识库'}</Title>
+            {isMounted && <Tag icon={<LinkOutlined />} color="green" style={{ fontSize: 13, padding: '4px 10px' }}>已挂载到当前会话</Tag>}
+          </div>
+          <Space>
+            <Tooltip title={isMounted ? '取消挂载到当前会话' : '挂载到当前会话'}>
+              <Button
+                icon={isMounted ? <DisconnectOutlined /> : <LinkOutlined />}
+                onClick={handleMountToggle}
+                style={{
+                  color: 'var(--accent-warm)',
+                  border: '1px solid var(--accent)',
+                  background: isMounted ? 'rgba(201,168,124,0.15)' : 'transparent',
+                }}
+              >
+                {isMounted ? '取消挂载' : '挂载到会话'}
+              </Button>
+            </Tooltip>
+            <Upload beforeUpload={handleUpload} showUploadList={false} accept=".pdf,.docx,.md,.txt,.py,.java,.ts,.tsx,.js,.go,.rs,.yaml,.yml,.json,.xml">
+              <Button type="primary" icon={<UploadOutlined />} loading={uploading}>上传文档</Button>
+            </Upload>
+          </Space>
+        </div>
+
+        {collection?.description && (
+          <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>{collection.description}</Text>
+        )}
+
+        {uploading && <Progress percent={uploadProgress} style={{ marginBottom: 16 }} />}
+        <Table columns={columns} dataSource={docs} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} size="middle" />
       </div>
-      {uploading && <Progress percent={uploadProgress} style={{ marginBottom: 16 }} />}
-      <Table columns={columns} dataSource={docs} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} size="middle" />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 """MemoryStore Protocol — the unified abstraction for all memory backends.
 
-Per AGENT_LAYER_MODEL.md L2 requirement:
+Per Agent六层架构规则文档.md L2 requirement:
     "记忆接口层：定义记忆读写的抽象接口，屏蔽底层存储差异。关键技术：抽象工厂、依赖注入。"
 
 Uses typing.Protocol (structural subtyping) rather than ABC to minimize runtime overhead.

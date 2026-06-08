@@ -16,6 +16,15 @@ export default defineConfig(({ mode }) => {
         '/agent/v1': {
           target: env.VITE_SF_AGENT_PROXY || 'http://localhost:8000',
           changeOrigin: true,
+          // SSE streaming: disable proxy buffering so chunks arrive immediately
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+                proxyRes.headers['cache-control'] = 'no-cache';
+                proxyRes.headers['x-accel-buffering'] = 'no';
+              }
+            });
+          },
         },
         '/auth': {
           target: env.VITE_SF_SYSTEM_PROXY || 'http://localhost:8200',

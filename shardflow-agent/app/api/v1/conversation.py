@@ -19,6 +19,8 @@ class ConversationRequest(BaseModel):
     message: str
     session_id: str = ""
     user_id: str = ""
+    model: str = ""  # model_id for routing
+    kb_collection_name: str = ""
     stream: bool = True
     context: dict[str, Any] | None = None
 
@@ -59,10 +61,11 @@ async def handle_conversation(
     )
     state["intent"] = intent
     state["entities"] = entities
+    state["model_id"] = body.model or "gpt-4o"
 
     if body.stream:
         async def event_generator() -> Any:
-            async for sse_msg in stream_react_events(state, fastapi_request):
+            async for sse_msg in stream_react_events(state, fastapi_request, intent_confidence=confidence):
                 yield sse_msg
 
         return EventSourceResponse(

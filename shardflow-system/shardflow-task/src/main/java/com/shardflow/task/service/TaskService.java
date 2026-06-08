@@ -9,13 +9,13 @@ public interface TaskService {
 
     TaskEntity createTask(String userId, String title, String description);
 
-    Optional<TaskEntity> getTask(String taskId);
+    Optional<TaskEntity> getTask(String taskCode);
 
     List<TaskEntity> listTasks(String userId);
 
-    Optional<TaskEntity> updateStatus(String taskId, String newStatus);
+    Optional<TaskEntity> updateStatus(String taskCode, String newStatus);
 
-    TaskSessionEntity createSession(String taskId, String userId, int seq, String sourcePort);
+    TaskSessionEntity createSession(String taskCode, String userId, int seq, String sourcePort);
 
-    List<TaskSessionEntity> getTaskSessions(String taskId);
+    List<TaskSessionEntity> getTaskSessions(String taskCode);
 }

@@ -10,8 +10,11 @@ import java.time.Instant;
 @TableName("shardflow_mcp_tool")
 public class McpToolEntity {
 
-    @TableId(value = "tool_id", type = IdType.INPUT)
-    private String toolId;
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    @TableField("tool_code")
+    private String toolCode;
 
     @TableField("tool_name")
     private String toolName;

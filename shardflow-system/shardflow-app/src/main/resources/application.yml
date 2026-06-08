@@ -6,11 +6,25 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:shardflow}
     password: ${SPRING_DATASOURCE_PASSWORD:shardflow}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: ${SF_HIKARI_MAX_POOL_SIZE:5}
+      minimum-idle: ${SF_HIKARI_MIN_IDLE:2}
+      connection-timeout: 5000
+      initialization-fail-timeout: 10000
+  sql:
+    init:
+      mode: never
 
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 2
 
 server:
   port: ${SF_SYSTEM_SERVER_PORT:8200}
@@ -18,14 +32,18 @@ server:
 sa-token:
   token-name: Authorization
   token-prefix: Bearer
-  timeout: 86400
+  timeout: 7200
   active-timeout: -1
   is-concurrent: true
-  is-share: true
+  is-share: false
   is-read-header: true
   is-read-cookie: false
   is-log: false
   jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
+
+shardflow:
+  model-key-master: ${SF_MODEL_KEY_MASTER:c2hhcmRmbG93LWRldi1hZXMta2V5LWRvLW5vdC11c2U=}
+  java-api-key: ${SF_JAVA_API_KEY:shardflow}
 
 logging:
   level:

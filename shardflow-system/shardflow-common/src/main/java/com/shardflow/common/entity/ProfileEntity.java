@@ -10,7 +10,10 @@ import java.time.Instant;
 @TableName("shardflow_user_profile")
 public class ProfileEntity {
 
-    @TableId(value = "user_id", type = IdType.INPUT)
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    @TableField("user_id")
     private String userId;
 
     @TableField("preferences")

@@ -54,7 +54,7 @@ public class CallbackServiceImpl implements CallbackService {
         shardRepository.insertOrUpdate(shard);
 
         String cacheKey = "shardflow:" + request.userId() + ":shard:" + request.taskId() + ":latest";
-        redisTemplate.opsForValue().set(cacheKey, shard.getId(), Duration.ofHours(24));
+        redisTemplate.opsForValue().set(cacheKey, String.valueOf(shard.getId()), Duration.ofHours(24));
 
         log.info("Shard persisted: userId={}, taskId={}, shardId={}", request.userId(), request.taskId(), shard.getId());
         return Map.of("success", true, "shard_id", shard.getId());
@@ -64,26 +64,27 @@ public class CallbackServiceImpl implements CallbackService {
     @Transactional
     public Map<String, Object> saveStrategy(Map<String, Object> body) {
         StrategyEntity strategy = new StrategyEntity();
-        strategy.setStrategyId((String) body.getOrDefault("strategy_id", UUID.randomUUID().toString()));
+        strategy.setStrategyCode((String) body.getOrDefault("strategy_id", UUID.randomUUID().toString()));
         strategy.setUserId((String) body.get("user_id"));
         strategy.setTaskType((String) body.getOrDefault("task_type", "general"));
         strategy.setSourceCombo(toJson(body.get("source_combo")));
         strategyRepository.insert(strategy);
 
-        log.info("Strategy persisted: {}", strategy.getStrategyId());
-        return Map.of("success", true, "strategy_id", strategy.getStrategyId());
+        log.info("Strategy persisted: {}", strategy.getStrategyCode());
+        return Map.of("success", true, "strategy_id", strategy.getStrategyCode());
     }
 
     @Override
     @Transactional
     public Map<String, Object> sessionComplete(Map<String, Object> body) {
-        String taskId = (String) body.get("task_id");
-        TaskEntity task = taskRepository.selectById(taskId);
+        String taskCode = (String) body.get("task_id");
+        TaskEntity task = taskRepository.selectOne(
+            new LambdaQueryWrapper<TaskEntity>().eq(TaskEntity::getTaskCode, taskCode));
         if (task != null) {
             task.setStatus("COMPLETED");
             taskRepository.updateById(task);
         }
-        log.info("Session completed: taskId={}", taskId);
+        log.info("Session completed: taskCode={}", taskCode);
         return Map.of("success", true);
     }
 

@@ -10,8 +10,11 @@ import java.time.Instant;
 @TableName("shardflow_task")
 public class TaskEntity {
 
-    @TableId(value = "task_id", type = IdType.INPUT)
-    private String taskId;
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    @TableField("task_code")
+    private String taskCode;
 
     @TableField("user_id")
     private String userId;

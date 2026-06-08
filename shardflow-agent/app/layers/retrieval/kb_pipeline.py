@@ -4,6 +4,7 @@ Handles:
 - Singleton Milvus connection management
 - LlamaIndex global Settings (embedding model, chunk size)
 - Collection lifecycle (create/get/drop)
+- Dynamic embedding model configuration via config service
 """
 import logging
 import os
@@ -27,17 +28,52 @@ _llama_initialized: bool = False
 _milvus_connected: bool = False
 
 
-def init_llama_index() -> None:
-    """Initialize LlamaIndex global settings. Idempotent."""
+async def _fetch_embedding_config() -> dict:
+    """Fetch embedding model config from Java ConfigService for the given model_id."""
+    try:
+        from app.infrastructure.callback_client import callback_client
+        java_client = await callback_client._get_client()
+        resp = await java_client.get(
+            f"/api/v1/models/{settings.kb_embedding_model}/config",
+            headers={"X-API-Key": settings.java_api_key or settings.llm_api_key},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and "data" in data:
+            return data["data"]
+        return data
+    except Exception as e:
+        logger.warning("Failed to fetch embedding config, using global settings: %s", e)
+        return {
+            "base_url": settings.llm_base_url,
+            "api_key": settings.llm_api_key,
+            "model": settings.kb_embedding_model,
+        }
+
+
+def init_llama_index(embedding_config: dict | None = None) -> None:
+    """Initialize LlamaIndex global settings. Idempotent.
+
+    Args:
+        embedding_config: Optional pre-fetched config with api_key, base_url, model.
+    """
     global _llama_initialized
     if _llama_initialized:
         return
 
+    if embedding_config is None:
+        # Synchronous fallback: use global settings
+        embedding_config = {
+            "api_key": settings.llm_api_key,
+            "base_url": settings.llm_base_url if settings.llm_base_url else None,
+            "model": settings.kb_embedding_model,
+        }
+
     embed_model = OpenAIEmbedding(
-        model=settings.kb_embedding_model,
+        model=embedding_config.get("model", settings.kb_embedding_model),
         dimensions=settings.kb_embedding_dim,
-        api_key=settings.llm_api_key,
-        api_base=settings.llm_base_url if settings.llm_base_url else None,
+        api_key=embedding_config.get("api_key", settings.llm_api_key),
+        api_base=embedding_config.get("base_url") if embedding_config.get("base_url") else None,
     )
     LlamaSettings.embed_model = embed_model
     LlamaSettings.chunk_size = settings.kb_chunk_size
@@ -45,6 +81,15 @@ def init_llama_index() -> None:
     _llama_initialized = True
     logger.info("LlamaIndex global settings initialized (embed=%s, dim=%d, chunk=%d)",
                 settings.kb_embedding_model, settings.kb_embedding_dim, settings.kb_chunk_size)
+
+
+async def init_llama_index_async() -> None:
+    """Async version that fetches embedding config from config service."""
+    global _llama_initialized
+    if _llama_initialized:
+        return
+    config = await _fetch_embedding_config()
+    init_llama_index(config)
 
 
 def connect_milvus() -> bool:
@@ -277,7 +322,7 @@ async def process_document(
     try:
         # Step 1: Parse document
         _notify("PARSING")
-        init_llama_index()
+        await init_llama_index_async()
         docs = parse_document(file_path, file_type)
         if not docs:
             raise RuntimeError("Document parsing produced zero documents")

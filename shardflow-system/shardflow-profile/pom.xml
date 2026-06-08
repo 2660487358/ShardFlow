@@ -9,7 +9,5 @@
     <description>用户画像模块</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
-        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
-        <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId></dependency>
     </dependencies>
 </project>

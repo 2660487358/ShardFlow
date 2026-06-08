@@ -3,6 +3,7 @@ package com.shardflow.profile.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shardflow.common.dto.ProfileUpdateRequest;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shardflow.common.entity.ProfileEntity;
 import com.shardflow.profile.repository.ProfileRepository;
 import com.shardflow.profile.service.ProfileService;
@@ -38,7 +39,8 @@ public class ProfileServiceImpl implements ProfileService {
                 log.warn("Failed to deserialize cached profile for {}", userId);
             }
         }
-        ProfileEntity profile = repository.selectById(userId);
+        ProfileEntity profile = repository.selectOne(
+            new LambdaQueryWrapper<ProfileEntity>().eq(ProfileEntity::getUserId, userId));
         if (profile != null) {
             cacheProfile(userId, profile);
         }
@@ -47,7 +49,8 @@ public class ProfileServiceImpl implements ProfileService {
 
     @Override
     public ProfileEntity upsertProfile(String userId, ProfileUpdateRequest request) {
-        ProfileEntity profile = repository.selectById(userId);
+        ProfileEntity profile = repository.selectOne(
+            new LambdaQueryWrapper<ProfileEntity>().eq(ProfileEntity::getUserId, userId));
         if (profile == null) {
             profile = new ProfileEntity();
             profile.setUserId(userId);
@@ -82,7 +85,8 @@ public class ProfileServiceImpl implements ProfileService {
 
     @Override
     public void updateFromCallback(String userId, Map<String, Object> updates) {
-        ProfileEntity profile = repository.selectById(userId);
+        ProfileEntity profile = repository.selectOne(
+            new LambdaQueryWrapper<ProfileEntity>().eq(ProfileEntity::getUserId, userId));
         if (profile == null) {
             profile = new ProfileEntity();
             profile.setUserId(userId);

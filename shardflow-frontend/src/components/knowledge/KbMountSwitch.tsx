@@ -17,8 +17,9 @@ export default function KbMountSwitch() {
   const loadOptions = async () => {
     try {
       const cols = await fetchKbCollections();
-      setKbCollections(cols);
-      setOptions(cols.filter((c) => c.status === 'ACTIVE').map((c) => ({ value: c.id, label: c.name })));
+      const list = Array.isArray(cols) ? cols : [];
+      setKbCollections(list);
+      setOptions(list.filter((c) => c.status === 'ACTIVE').map((c) => ({ value: c.id, label: c.name })));
     } catch { /* silently fail */ }
   };
 
@@ -33,7 +34,7 @@ export default function KbMountSwitch() {
   };
 
   const handleSelect = (value: string) => {
-    const col = kbCollections.find((c) => c.id === value);
+    const col = (Array.isArray(kbCollections) ? kbCollections : []).find((c) => c.id === value);
     setKbActiveMount({ collectionId: value, collectionName: col?.name || '' });
   };
 

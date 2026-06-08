@@ -1,7 +1,7 @@
 import { Card, List, Tag, Empty, Typography, Button, Space, message } from 'antd';
 import { LikeOutlined, DislikeOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useStore } from '@/store';
-import api from '@/api/client';
+import { submitStrategyFeedback } from '@/api/client';
 
 const { Text } = Typography;
 
@@ -25,18 +25,13 @@ export default function StrategyPanel() {
 
   if (strategies.length === 0) return <Empty description={<span className="cn-tag">暂无策略推荐</span>} />;
 
-  const handleReuse = async (id: string) => {
-    try {
-      await api.post(`/strategies/${id}/reuse`);
-      message.success('策略已应用');
-    } catch {
-      message.error('应用失败');
-    }
+  const handleReuse = async (_id: string) => {
+    message.info('策略应用功能开发中');
   };
 
   const handleFeedback = async (id: string, fb: string) => {
     try {
-      await api.post(`/strategies/${id}/feedback`, { feedback: fb });
+      await submitStrategyFeedback(id, fb);
       message.success('反馈已提交');
     } catch {
       message.error('反馈失败');

@@ -15,7 +15,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const result = await login(values.username, values.password);
-      setAuth(result.token, values.username);
+      setAuth(result.token, result.user_id, result.refresh_token, result.expires_in);
       message.success('登录成功');
       navigate('/');
     } catch {

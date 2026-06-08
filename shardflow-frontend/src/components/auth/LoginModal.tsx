@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal, Tabs, Form, Input, Button, Typography, message } from 'antd';
 import { useStore } from '@/store';
-import { login } from '@/api/client';
+import { login, register } from '@/api/client';
 
 const { Title } = Typography;
 
@@ -20,7 +20,7 @@ export default function LoginModal({ open, onClose }: Props) {
     setLoading(true);
     try {
       const result = await login(values.username, values.password);
-      setAuth(result.token, values.username);
+      setAuth(result.token, result.user_id, result.refresh_token, result.expires_in);
       message.success('登录成功');
       form.resetFields();
       onClose();
@@ -37,12 +37,14 @@ export default function LoginModal({ open, onClose }: Props) {
     }
     setLoading(true);
     try {
+      const result = await register(values.username, values.password);
+      setAuth(result.token, result.user_id, result.refresh_token, result.expires_in);
       message.success('注册成功，已自动登录');
-      setAuth('demo-token', values.username);
       form.resetFields();
       onClose();
-    } catch {
-      message.error('注册失败');
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || '注册失败';
+      message.error(msg);
     }
     setLoading(false);
   };

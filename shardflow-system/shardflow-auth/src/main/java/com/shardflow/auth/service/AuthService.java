@@ -10,5 +10,5 @@ public interface AuthService {
 
     Map<String, Object> refresh(String refreshToken);
 
-    void logout(String token);
+    void logout(String token, String refreshToken);
 }

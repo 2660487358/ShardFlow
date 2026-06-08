@@ -30,10 +30,14 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public Result<Void> logout(@RequestHeader("Authorization") String authHeader) {
+    public Result<Void> logout(@RequestHeader("Authorization") String authHeader,
+                               @RequestBody(required = false) Map<String, String> body) {
+        String token = null;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            authService.logout(authHeader.substring(7));
+            token = authHeader.substring(7);
         }
+        String refreshToken = body != null ? body.get("refresh_token") : null;
+        authService.logout(token, refreshToken);
         return Result.ok();
     }
 }

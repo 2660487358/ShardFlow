@@ -9,18 +9,22 @@ export interface ConversationRequest {
 }
 
 export interface SSEEvent {
-  type: 'intent' | 'think' | 'action' | 'observe' | 'progress'
+  type: 'intent' | 'think' | 'answer' | 'action' | 'observe' | 'progress'
     | 'shard_trigger' | 'shard_result' | 'strategy'
     | 'profile_applied' | 'shard_resume' | 'done' | 'error'
     | 'heartbeat';
   data: Record<string, unknown>;
 }
 
+export type StreamingPhase = 'idle' | 'thinking' | 'answering' | 'done';
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   eventType?: SSEEvent['type'];
+  thinkingContent?: string;  // Raw think tokens for collapsible display
+  streamingPhase?: StreamingPhase;  // Current streaming phase
   timestamp: number;
 }
 
@@ -93,12 +97,29 @@ export interface StrategyRecord {
 
 export interface CustomModel {
   id: string;
+  model_code?: string;
   name: string;
   provider: string;
+  base_url?: string;
   model: string;
   api_key_id: string;
+  api_key_encrypted?: string;
+  capabilities?: string[];
+  context_window?: number;
   enabled: boolean;
+  is_verified?: boolean;
   created_at: string;
+}
+
+export interface AvailableModel {
+  key: string;
+  label: string;
+  provider: string;
+  model?: string;
+  capabilities?: string;
+  context_window?: number;
+  type: 'builtin' | 'custom';
+  is_verified?: boolean;
 }
 
 export interface AgentConfig {

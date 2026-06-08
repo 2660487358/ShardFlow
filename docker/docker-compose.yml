@@ -24,8 +24,13 @@ services:
       SPRING_DATASOURCE_USERNAME: ${SF_INFRA_MYSQL_USER:-shardflow}
       SPRING_DATASOURCE_PASSWORD: ${SF_INFRA_MYSQL_PASSWORD:-shardflow}
       SPRING_DATA_REDIS_HOST: redis
-      SF_SYSTEM_JAVA_API_KEY: ${SF_AGENT_JAVA_API_KEY:-}
+      SF_JAVA_API_KEY: ${SF_JAVA_API_KEY:-}
       SA_TOKEN_JWT_SECRET_KEY: ${SA_TOKEN_JWT_SECRET_KEY:-ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
+      SF_MODEL_KEY_MASTER: ${SF_MODEL_KEY_MASTER:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
     depends_on:
       mysql:
         condition: service_healthy
@@ -48,9 +53,14 @@ services:
       SF_AGENT_JAVA_API_KEY: ${SF_AGENT_JAVA_API_KEY:-}
       SF_AGENT_LOG_LEVEL: INFO
       SF_AGENT_MILVUS_HOST: milvus
+      SF_AGENT_MODEL_KEY_MASTER: ${SF_MODEL_KEY_MASTER:-}
+      SF_AGENT_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SF_AGENT_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SF_AGENT_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SF_AGENT_AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
     depends_on:
       java:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -58,7 +68,7 @@ services:
       context: ../shardflow-frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "5173:80"
     environment:
       VITE_SF_API_BASE_URL: http://localhost:${SF_AGENT_API_PORT:-8000}
       VITE_SF_AUTH_BASE_URL: http://localhost:${SF_SYSTEM_SERVER_PORT:-8200}

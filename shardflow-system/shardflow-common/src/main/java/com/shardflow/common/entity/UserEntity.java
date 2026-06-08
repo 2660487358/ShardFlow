@@ -10,8 +10,8 @@ import java.time.Instant;
 @TableName("shardflow_user")
 public class UserEntity {
 
-    @TableId(type = IdType.ASSIGN_UUID)
-    private String id;
+    @TableId(type = IdType.AUTO)
+    private Long id;
 
     @TableField("username")
     private String username;

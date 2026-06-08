@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-# 安全：创建非 root 用户
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
@@ -9,12 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[dev]"
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir fastapi uvicorn[standard] sse-starlette pydantic-settings redis[hiredis] httpx langgraph
 
 COPY . .
 
-# 安全：切换至非 root 用户
 RUN chown -R appuser:appuser /app
 USER appuser
 

@@ -9,6 +9,5 @@
     <description>MCP 工具注册中心模块</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
-        <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId></dependency>
     </dependencies>
 </project>

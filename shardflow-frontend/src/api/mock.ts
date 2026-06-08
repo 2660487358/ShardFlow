@@ -112,6 +112,10 @@ export const mockSSEEvents: SSEEvent[] = [
     data: { loop: 2, context_usage: 0.45 },
   },
   {
+    type: 'answer',
+    data: { content: 'Dubbo 注册链路：ServiceConfig.export() → RegistryProtocol.export() → registry.register(url) → ZookeeperRegistry.doRegister() → zkClient.createEphemeral()。服务以临时节点形式注册到 Zookeeper 的 /dubbo/{service}/providers/ 路径下。' },
+  },
+  {
     type: 'done',
     data: { answer: 'Dubbo 注册链路：ServiceConfig.export() → RegistryProtocol.export() → registry.register(url) → ZookeeperRegistry.doRegister() → zkClient.createEphemeral()。服务以临时节点形式注册到 Zookeeper 的 /dubbo/{service}/providers/ 路径下。', shard_id: 'shard-demo-001' },
   },

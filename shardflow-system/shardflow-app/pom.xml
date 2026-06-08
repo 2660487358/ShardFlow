@@ -22,35 +22,13 @@
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-task</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-profile</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-mcp</artifactId></dependency>
-        <!-- MyBatis-Plus -->
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-        </dependency>
-        <!-- Sa-Token -->
-        <dependency>
-            <groupId>cn.dev33</groupId>
-            <artifactId>sa-token-spring-boot4-starter</artifactId>
-            <version>${sa-token.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>cn.dev33</groupId>
-            <artifactId>sa-token-jwt</artifactId>
-            <version>${sa-token.version}</version>
-        </dependency>
-        <!-- Sa-Token 整合 Redis（使用 Jackson 序列化） -->
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-config</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-kb</artifactId></dependency>
+        <!-- Sa-Token 整合 Redis（使用 Jackson 序列化） — 唯一需要在此声明的第三方依赖 -->
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-redis-jackson</artifactId>
             <version>${sa-token.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
         </dependency>
     </dependencies>
     <build>

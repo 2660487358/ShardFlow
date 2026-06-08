@@ -33,7 +33,7 @@ public class McpToolController {
     @PostMapping("/tools")
     public Result<Map<String, Object>> registerTool(@Valid @RequestBody McpToolEntity tool) {
         McpToolEntity saved = service.registerTool(tool);
-        return Result.ok(Map.of("tool_id", saved.getToolId(), "status", saved.getStatus()));
+        return Result.ok(Map.of("tool_code", saved.getToolCode(), "status", saved.getStatus()));
     }
 
     @PutMapping("/tools/{toolId}")

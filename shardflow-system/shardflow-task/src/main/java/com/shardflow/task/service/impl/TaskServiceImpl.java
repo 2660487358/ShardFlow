@@ -33,7 +33,7 @@ public class TaskServiceImpl implements TaskService {
     @Transactional
     public TaskEntity createTask(String userId, String title, String description) {
         TaskEntity task = new TaskEntity();
-        task.setTaskId(UUID.randomUUID().toString());
+        task.setTaskCode(UUID.randomUUID().toString());
         task.setUserId(userId);
         task.setTitle(title);
         task.setDescription(description);
@@ -43,8 +43,9 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public Optional<TaskEntity> getTask(String taskId) {
-        return Optional.ofNullable(taskRepository.selectById(taskId));
+    public Optional<TaskEntity> getTask(String taskCode) {
+        return Optional.ofNullable(taskRepository.selectOne(
+            new LambdaQueryWrapper<TaskEntity>().eq(TaskEntity::getTaskCode, taskCode)));
     }
 
     @Override
@@ -56,11 +57,12 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional
-    public Optional<TaskEntity> updateStatus(String taskId, String newStatus) {
+    public Optional<TaskEntity> updateStatus(String taskCode, String newStatus) {
         if (!VALID_STATUSES.contains(newStatus)) {
             throw new IllegalArgumentException("Invalid status: " + newStatus);
         }
-        TaskEntity task = taskRepository.selectById(taskId);
+        TaskEntity task = taskRepository.selectOne(
+            new LambdaQueryWrapper<TaskEntity>().eq(TaskEntity::getTaskCode, taskCode));
         if (task == null) return Optional.empty();
         Set<String> allowed = ALLOWED_TRANSITIONS.getOrDefault(task.getStatus(), Set.of());
         if (!allowed.contains(newStatus)) {

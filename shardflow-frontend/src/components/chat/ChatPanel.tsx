@@ -3,43 +3,92 @@ import { Input, Button, Typography, message, Dropdown, Tooltip } from 'antd';
 import {
   SendOutlined, PlusOutlined,
   GlobalOutlined, EditOutlined,
-  FileAddOutlined,
+  FileAddOutlined, WarningOutlined,
+  DownOutlined, UpOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
-import { sendConversation } from '@/api/client';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import { sendConversation, fetchShard, fetchAvailableModels } from '@/api/client';
 import { useStore } from '@/store';
 import ShardFlowLogo from '@/components/common/ShardFlowLogo';
-import KbMountSwitch from '@/components/knowledge/KbMountSwitch';
-import type { ChatMessage, SSEEvent } from '@/types';
+import type { ChatMessage, StreamingPhase } from '@/types';
 
 const { TextArea } = Input;
-const { Text, Title } = Typography;
+const { Text } = Typography;
+
+/**
+ * 企业级规范安全网：清除文本中残留的标签标记。
+ * 处理完整标签（<THINKING>, </THINKING>, <ANSWER>, </ANSWER>）
+ * 以及不完整标签（如 </THINKING, </ANSWER 等缺少 > 的变体）。
+ */
+const stripTagMarkers = (text: string): string => {
+  if (!text) return text;
+  // 完整标签（含空格变体）
+  let result = text.replace(/<\/?THINKING\s*>/gi, '');
+  result = result.replace(/<\/?ANSWER\s*>/gi, '');
+  // 不完整标签（行尾缺少 > 的标签）
+  result = result.replace(/<\/?THINKING[^>]*$/gi, '');
+  result = result.replace(/<\/?ANSWER[^>]*$/gi, '');
+  return result;
+};
 
 interface Props {
   onLoginRequired: () => void;
   isAuthenticated: boolean;
 }
 
-const builtInModelOptions = [
-  { key: 'gpt-4o', label: 'GPT-4o (复杂推理)' },
-  { key: 'gpt-4o-mini', label: 'GPT-4o Mini (快速响应)' },
-  { key: 'deepseek-chat', label: 'DeepSeek Chat' },
-];
+/** Phase labels shown in the streaming progress indicator */
+const PHASE_LABELS: Record<string, string> = {
+  intent: '识别意图',
+  profile_applied: '加载偏好',
+  think: '思考中',
+  action: '调用工具',
+  observe: '观察结果',
+  progress: '推理进度',
+  answer: '生成回答',
+  shard_trigger: '上下文分片',
+  shard_result: '状态包提取',
+  strategy: '策略检索',
+  done: '完成',
+};
 
 export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
-  const { messages, addMessage, isStreaming, setStreaming, abortController, setAbortController, activeTaskId, activeSessionId, customModels } = useStore();
+  const {
+    messages, addMessage, isStreaming, setStreaming,
+    streamingPhase, setStreamingPhase,
+    abortController, setAbortController,
+    activeTaskId, activeSessionId, updateMessage,
+  } = useStore();
   const [input, setInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gpt-4o');
+  const [selectedModel, setSelectedModel] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [systemModels, setSystemModels] = useState<Array<{ key: string; label: string; provider?: string; model?: string; capabilities?: string; context_window?: number; type?: string; is_verified?: boolean }>>([]);
+  const [thinkingExpanded, setThinkingExpanded] = useState<Record<string, boolean>>({});
+  const [currentPhaseLabel, setCurrentPhaseLabel] = useState('');
   const messagesEnd = useRef<HTMLDivElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
+  const streamingMsgIdRef = useRef<string>('');
 
   const hasMessages = messages.length > 0;
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    fetchAvailableModels()
+      .then((models) => {
+        if (models?.length) {
+          setSystemModels(models);
+          if (!selectedModel) {
+            setSelectedModel(models[0].key);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -55,47 +104,201 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     if (!input.trim() || isStreaming) return;
     if (!isAuthenticated) { onLoginRequired(); return; }
 
+    if (isUnverifiedCustom) {
+      message.warning('当前模型未通过连通性验证，请先在"模型"页面验证模型');
+      return;
+    }
+
     const effectiveTaskId = activeTaskId || `task-${Date.now()}`;
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: input, timestamp: Date.now() };
     addMessage(userMsg);
     setInput('');
     setStreaming(true);
+    setStreamingPhase('thinking');
 
     const controller = new AbortController();
     setAbortController(controller);
 
     const assistantMsgId = (Date.now() + 1).toString();
+    streamingMsgIdRef.current = assistantMsgId;
     let assistantContent = '';
+    let thinkingContent = '';
+    let hasStreamingContent = false;
+    let assistantCreated = false;
+
+    // RAF-based rendering throttle: accumulate chunks between frames,
+    // flush to store once per animation frame for smooth typewriter effect.
+    let pendingAnswer = '';
+    let pendingThink = '';
+    let rafId: number | null = null;
+
+    const flushToStore = () => {
+      rafId = null;
+      const updates: Partial<ChatMessage> = {};
+      if (pendingThink) {
+        thinkingContent += pendingThink;
+        pendingThink = '';
+        updates.thinkingContent = thinkingContent;
+      }
+      if (pendingAnswer) {
+        assistantContent += pendingAnswer;
+        pendingAnswer = '';
+        updates.content = assistantContent;
+        updates.streamingPhase = 'answering';
+      }
+      if (Object.keys(updates).length > 0) {
+        updateMessage(assistantMsgId, updates);
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (rafId === null) {
+        rafId = requestAnimationFrame(flushToStore);
+      }
+    };
 
     await sendConversation(
       effectiveTaskId, userMsg.content, activeSessionId || '', selectedModel,
       (event: { type: string; data: Record<string, unknown> }) => {
         const data = event.data || {};
+
+        // Update phase indicator
+        const phaseLabel = PHASE_LABELS[event.type];
+        if (phaseLabel) {
+          setCurrentPhaseLabel(phaseLabel);
+        }
+
         if (event.type === 'profile_applied') { message.info(`已应用偏好：${data.preferred_depth || '默认'}`); return; }
-        if (event.type === 'done') return;
-        const content = extractContent(event.type, data);
-        assistantContent += content;
-        const existing = useStore.getState().messages.find((m) => m.id === assistantMsgId);
-        if (existing) {
-          useStore.setState({
-            messages: useStore.getState().messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, content: assistantContent } : m),
-          });
-        } else {
-          addMessage({
-            id: assistantMsgId, role: 'assistant', content: assistantContent,
-            eventType: event.type as SSEEvent['type'], timestamp: Date.now(),
-          });
+        if (event.type === 'shard_trigger') { return; }
+
+        if (event.type === 'shard_result') {
+          const partialShard = {
+            task_id: data.shard_id as string || '',
+            knowledge_state: { summary: data.summary as string || '' },
+          } as unknown as import('@/types').ContextShard;
+          useStore.getState().setShard(partialShard);
+        }
+        if (event.type === 'shard_resume') {
+          useStore.getState().setShard(data as unknown as import('@/types').ContextShard);
+        }
+        if (event.type === 'strategy') {
+          const s = useStore.getState().strategies;
+          useStore.getState().setStrategies([...s, {
+            strategy_id: (data.strategy_id as string) || '',
+            task_type: (data.decision as string) || '',
+            query_pattern: (data.decision as string) || '',
+            similarity: data.similarity as number,
+          } as unknown as import('@/types').StrategyRecord]);
+          return;
+        }
+
+        if (event.type === 'intent') {
+          return;
+        }
+
+        // think events: accumulate thinking content for collapsible display
+        if (event.type === 'think') {
+          const chunk = (data.reasoning as string) || '';
+          if (!assistantCreated) {
+            assistantCreated = true;
+            addMessage({
+              id: assistantMsgId,
+              role: 'assistant',
+              content: '',
+              eventType: 'think',
+              streamingPhase: 'thinking',
+              thinkingContent: '',
+              timestamp: Date.now(),
+            });
+          }
+          if (chunk) {
+            pendingThink += chunk;
+            scheduleFlush();
+          }
+          return;
+        }
+
+        // answer events: accumulate chunks and flush once per animation frame
+        if (event.type === 'answer') {
+          const chunk = (data.content as string) || '';
+          if (chunk) {
+            hasStreamingContent = true;
+            if (!assistantCreated) {
+              assistantCreated = true;
+              addMessage({
+                id: assistantMsgId,
+                role: 'assistant',
+                content: '',
+                eventType: 'answer',
+                streamingPhase: 'answering',
+                thinkingContent: '',
+                timestamp: Date.now(),
+              });
+              setStreamingPhase('answering');
+            }
+            pendingAnswer += chunk;
+            scheduleFlush();
+          }
+          return;
+        }
+
+        if (event.type === 'done') {
+          // Cancel any pending RAF and flush immediately
+          if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+          if (pendingThink) {
+            thinkingContent += pendingThink;
+            pendingThink = '';
+          }
+          if (pendingAnswer) {
+            assistantContent += pendingAnswer;
+            pendingAnswer = '';
+          }
+
+          if (data.shard_id) {
+            fetchShard(data.shard_id as string).then((shard) => {
+              useStore.getState().setShard(shard as import('@/types').ContextShard);
+            }).catch(() => {});
+          }
+          if (hasStreamingContent) {
+            updateMessage(assistantMsgId, {
+              content: assistantContent,
+              thinkingContent: thinkingContent || undefined,
+              eventType: 'done',
+              streamingPhase: 'done',
+            });
+          } else {
+            const answer = data.answer as string || '';
+            if (answer) {
+              assistantContent = answer;
+            } else if (!assistantContent) {
+              assistantContent = '任务已完成，但未生成回答内容。';
+            }
+            updateMessage(assistantMsgId, {
+              content: assistantContent,
+              thinkingContent: thinkingContent || undefined,
+              eventType: 'done',
+              streamingPhase: 'done',
+            });
+          }
+          return;
         }
       },
       (err) => {
+        if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
         addMessage({ id: (Date.now() + 2).toString(), role: 'system', content: `Error: ${err.message}`, eventType: 'error', timestamp: Date.now() });
         setStreaming(false);
+        setStreamingPhase('idle');
         setAbortController(null);
       },
       () => {
+        if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
         setStreaming(false);
+        setStreamingPhase('idle');
         setAbortController(null);
+        setCurrentPhaseLabel('');
       },
       controller.signal,
     );
@@ -105,33 +308,49 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     if (abortController) {
       abortController.abort();
       setStreaming(false);
+      setStreamingPhase('idle');
       setAbortController(null);
+      setCurrentPhaseLabel('');
     }
+  };
+
+  const toggleThinking = (msgId: string) => {
+    setThinkingExpanded(prev => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
   const extractContent = (type: string, data: Record<string, unknown>): string => {
     switch (type) {
-      case 'think': return data.reasoning ? `${data.reasoning}\n\n` : `${data.content || ''}\n\n`;
-      case 'action': return `**🔧 调用工具**: ${data.tool || data.tool_name}\n\n`;
+      case 'action':
+        // 企业级规范: 不暴露工具名称和参数，仅显示"正在获取信息"
+        return '**🔍 正在获取信息...**\n\n';
       case 'observe': {
+        // 企业级规范: 不暴露工具名、耗时，仅展示结果摘要
         const success = data.success !== false;
-        const icon = success ? '✅' : '❌';
-        const toolName = data.tool || data.tool_name || 'unknown';
-        return `${icon} **${toolName}**${data.latency_ms ? ` (${data.latency_ms}ms)` : ''}\n${data.result || data.snippet || ''}\n\n`;
+        if (!success) {
+          // 工具失败时不暴露失败细节，仅提示用户
+          return '> 注：部分信息获取受限，以下回答基于已有知识体系。\n\n';
+        }
+        // 成功时不展示原始结果，由最终答案整合呈现
+        return '';
       }
       case 'strategy': return `**📋 策略**: ${data.decision}${data.similarity ? ` (相似度 ${Number(data.similarity).toFixed(2)})` : ''}\n\n`;
-      case 'done': return '';
-      case 'intent': case 'progress': case 'shard_trigger': case 'shard_result': case 'shard_resume': case 'heartbeat': return '';
+      case 'done': case 'answer': return '';
+      case 'intent': case 'think': case 'progress': case 'shard_trigger': case 'shard_result': case 'shard_resume': case 'heartbeat': return '';
       default: return '';
     }
   };
 
-  const modelOptions = [
-    ...builtInModelOptions,
-    ...customModels.map((m) => ({ key: m.id, label: `${m.name} (自定义)` })),
-  ];
+  // Model options come entirely from the database via fetchAvailableModels() API
+  const modelOptions = systemModels.map((m) => ({
+    key: m.key,
+    label: m.label,
+    type: (m.type === 'custom' ? 'custom' : 'builtin') as 'builtin' | 'custom',
+    verified: m.type === 'custom' ? !!m.is_verified : true,
+  }));
 
-  const currentModelLabel = modelOptions.find(m => m.key === selectedModel)?.label || 'GPT-4o (复杂推理)';
+  const currentModel = modelOptions.find(m => m.key === selectedModel);
+  const currentModelLabel = currentModel?.label || '';
+  const isUnverifiedCustom = currentModel?.type === 'custom' && !currentModel?.verified;
 
   return (
     <div style={{
@@ -211,65 +430,208 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                 ) : msg.role === 'system' ? (
                   <Text type="danger" style={{ fontSize: 13 }}>{msg.content}</Text>
                 ) : (
-                  <div style={{
-                    background: 'rgba(255,255,255,0.6)',
-                    border: '1px solid var(--paper-dark)',
-                    borderRadius: '16px 4px 16px 16px',
-                    padding: '16px 20px',
-                    color: 'var(--ink-soft)',
-                    fontSize: 15,
-                    lineHeight: '1.9',
-                    maxWidth: '100%',
-                    letterSpacing: '0.02em',
-                    position: 'relative',
-                    transition: 'all 0.3s ease',
-                  }}>
+                  <div style={{ width: '100%' }}>
+                    {/* Thinking section - collapsible, default hidden per enterprise spec */}
+                    {msg.thinkingContent && (
+                      <div className="thinking-section" style={{
+                        marginBottom: msg.content ? 8 : 0,
+                        borderRadius: 10,
+                        border: '1px solid var(--paper-dark)',
+                        overflow: 'hidden',
+                        transition: 'all 0.3s ease',
+                      }}>
+                        <button
+                          onClick={() => toggleThinking(msg.id)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            width: '100%',
+                            padding: '8px 14px',
+                            border: 'none',
+                            background: 'rgba(201,168,124,0.06)',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            color: 'var(--ink-faint)',
+                            fontFamily: 'var(--font-sans)',
+                            letterSpacing: '0.04em',
+                            transition: 'background 0.2s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = 'rgba(201,168,124,0.12)';
+                          }}
+                          onMouseLeave={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = 'rgba(201,168,124,0.06)';
+                          }}
+                        >
+                          {thinkingExpanded[msg.id] ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+                          <span>推理过程</span>
+                          {isStreaming && msg.id === streamingMsgIdRef.current && msg.streamingPhase === 'thinking' && (
+                            <span className="thinking-pulse" style={{
+                              display: 'inline-block',
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              background: 'var(--accent-warm)',
+                              marginLeft: 4,
+                            }} />
+                          )}
+                        </button>
+                        {thinkingExpanded[msg.id] && (
+                          <div style={{
+                            padding: '8px 14px',
+                            maxHeight: 200,
+                            overflow: 'auto',
+                            fontSize: 12,
+                            lineHeight: 1.6,
+                            color: 'var(--ink-faint)',
+                            fontFamily: 'var(--font-mono)',
+                            background: 'rgba(0,0,0,0.02)',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                          }}>
+                            <div style={{
+                              fontSize: 11,
+                              color: 'var(--ink-faint)',
+                              opacity: 0.7,
+                              marginBottom: 6,
+                              fontStyle: 'italic',
+                            }}>
+                              以下为内部推理过程，可能包含未验证信息
+                            </div>
+                            {stripTagMarkers(msg.thinkingContent)}
+                            {isStreaming && msg.id === streamingMsgIdRef.current && msg.streamingPhase === 'thinking' && (
+                              <span className="streaming-cursor" style={{
+                                display: 'inline-block',
+                                width: 2,
+                                height: '1em',
+                                background: 'var(--ink-faint)',
+                                marginLeft: 2,
+                                verticalAlign: 'text-bottom',
+                                animation: 'blink 0.8s step-end infinite',
+                              }} />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Answer content */}
                     <div style={{
-                      position: 'absolute',
-                      bottom: -3,
-                      left: '2%',
-                      right: '2%',
-                      height: 3,
-                      background: 'var(--paper-dark)',
-                      borderRadius: '0 0 4px 4px',
-                      opacity: 0.3,
-                    }} />
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      background: 'rgba(255,255,255,0.6)',
+                      border: '1px solid var(--paper-dark)',
+                      borderRadius: '16px 4px 16px 16px',
+                      padding: msg.content ? '16px 20px' : '14px 20px',
+                      color: 'var(--ink-soft)',
+                      fontSize: 15,
+                      lineHeight: '1.9',
+                      maxWidth: '100%',
+                      letterSpacing: '0.02em',
+                      position: 'relative',
+                      transition: 'all 0.3s ease',
+                    }}>
+                      <div style={{
+                        position: 'absolute',
+                        bottom: -3,
+                        left: '2%',
+                        right: '2%',
+                        height: 3,
+                        background: 'var(--paper-dark)',
+                        borderRadius: '0 0 4px 4px',
+                        opacity: 0.3,
+                      }} />
+                      {msg.content ? (
+                        <div className="markdown-body">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{stripTagMarkers(msg.content)}</ReactMarkdown>
+                        </div>
+                      ) : null}
+                      {isStreaming && msg.id === streamingMsgIdRef.current && msg.streamingPhase === 'answering' && (
+                        <span className="streaming-cursor" style={{
+                          display: 'inline-block',
+                          width: 2,
+                          height: '1em',
+                          background: 'var(--ink)',
+                          marginLeft: 2,
+                          verticalAlign: 'text-bottom',
+                          animation: 'blink 0.8s step-end infinite',
+                        }} />
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
             ))}
-            {isStreaming && (
-              <div className="message-enter" style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-                <div style={{ flexShrink: 0 }}>
+
+            {/* Streaming progress indicator */}
+            {isStreaming && (() => {
+              const streamingMsg = messages.find(m => m.role === 'assistant' && m.id === streamingMsgIdRef.current);
+              const isThinking = !streamingMsg || streamingMsg.streamingPhase === 'thinking';
+              const isAnswering = streamingMsg?.streamingPhase === 'answering';
+
+              return (
+                <div className="message-enter" style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                  <div style={{ flexShrink: 0 }}>
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <ShardFlowLogo size={36} />
+                    </div>
+                  </div>
                   <div style={{
-                    width: 36,
-                    height: 36,
-                    display: 'flex',
+                    background: 'rgba(255,255,255,0.6)',
+                    border: '1px solid var(--paper-dark)',
+                    borderRadius: '16px 4px 16px 16px',
+                    padding: '14px 20px',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    gap: 12,
                   }}>
-                    <ShardFlowLogo size={36} />
+                    {isThinking && (
+                      <>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <div className="typing-dot" />
+                          <div className="typing-dot" />
+                          <div className="typing-dot" />
+                        </div>
+                        <span className="cn-tag" style={{ fontSize: 13 }}>
+                          {currentPhaseLabel || '正在思考...'}
+                        </span>
+                      </>
+                    )}
+                    {isAnswering && (
+                      <div className="streaming-progress" style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}>
+                        <div style={{
+                          width: 120,
+                          height: 3,
+                          background: 'var(--paper-dark)',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                        }}>
+                          <div className="progress-bar" style={{
+                            height: '100%',
+                            background: 'var(--accent)',
+                            borderRadius: 2,
+                            animation: 'progressPulse 2s ease-in-out infinite',
+                          }} />
+                        </div>
+                        <span className="cn-tag" style={{ fontSize: 12 }}>
+                          生成回答中
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div style={{
-                  background: 'rgba(255,255,255,0.6)',
-                  border: '1px solid var(--paper-dark)',
-                  borderRadius: '16px 4px 16px 16px',
-                  padding: '14px 20px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 12,
-                }}>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <div className="typing-dot" />
-                    <div className="typing-dot" />
-                    <div className="typing-dot" />
-                  </div>
-                  <span className="cn-tag" style={{ fontSize: 13 }}>正在思考...</span>
-                </div>
-              </div>
-            )}
+              );
+            })()}
+
             <div ref={messagesEnd} />
           </div>
         )}
@@ -403,9 +765,6 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             (e.currentTarget as HTMLElement).style.boxShadow = 'none';
           }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <KbMountSwitch />
-            </div>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
               <Button
                 type="text"
@@ -473,35 +832,45 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                   </Tooltip>
                 )}
 
-                <Dropdown
-                  menu={{
-                    items: modelOptions.map(m => ({
-                      key: m.key,
-                      label: m.label,
-                      onClick: () => setSelectedModel(m.key),
-                    })),
-                    selectedKeys: [selectedModel],
-                  }}
-                  trigger={['click']}
-                >
-                  <Button
-                    type="text"
-                    size="small"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '4px 8px',
-                      borderRadius: 8,
-                      color: 'var(--ink-faint)',
-                      fontSize: 13,
-                      height: 30,
-                      fontFamily: 'var(--font-sans)',
+                {isAuthenticated && (
+                  <Dropdown
+                    menu={{
+                      items: modelOptions.map(m => ({
+                        key: m.key,
+                        label: (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {m.label}
+                            {m.type === 'custom' && !m.verified && (
+                              <WarningOutlined style={{ color: '#faad14', fontSize: 12 }} />
+                            )}
+                          </span>
+                        ),
+                        onClick: () => setSelectedModel(m.key),
+                      })),
+                      selectedKeys: [selectedModel],
                     }}
+                    trigger={['click']}
                   >
-                    {currentModelLabel}
-                  </Button>
-                </Dropdown>
+                    <Button
+                      type="text"
+                      size="small"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '4px 8px',
+                        borderRadius: 8,
+                        color: isUnverifiedCustom ? '#faad14' : 'var(--ink-faint)',
+                        fontSize: 13,
+                        height: 30,
+                        fontFamily: 'var(--font-sans)',
+                      }}
+                    >
+                      {isUnverifiedCustom && <WarningOutlined style={{ fontSize: 12 }} />}
+                      {currentModelLabel}
+                    </Button>
+                  </Dropdown>
+                )}
 
                 <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
                   <Button
@@ -600,8 +969,6 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             </div>
           </div>
         </div>
-
-
       </div>
     </div>
   );

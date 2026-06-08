@@ -1,6 +1,6 @@
 """Memory type system for the Memory Interface Layer (L2 Agent Core).
 
-Defines the three memory categories per AGENT_LAYER_MODEL.md:
+Defines the three memory categories per Agent六层架构规则文档.md:
 - SHORT_TERM: Session context, sliding window messages, ephemeral conversation state
 - LONG_TERM:  ContextShard state packages that persist across sessions
 - META:      Strategy records, source preferences, learned patterns

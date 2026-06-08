@@ -43,6 +43,13 @@ public class GlobalExceptionHandler {
         return Result.fail(409, e.getMessage());
     }
 
+    @ExceptionHandler(AuthenticationException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public Result<Void> handleAuthentication(AuthenticationException e) {
+        log.warn("Authentication error: {}", e.getMessage());
+        return Result.fail(401, e.getMessage());
+    }
+
     @ExceptionHandler(NotLoginException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Result<Void> handleNotLogin(NotLoginException e) {

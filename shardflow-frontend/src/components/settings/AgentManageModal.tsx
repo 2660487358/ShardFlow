@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Modal, Input, Button, List, Typography, message, Slider, Switch, Select, Tag } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, RobotOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useStore } from '@/store';
-import type { AgentConfig } from '@/types';
+import { fetchMcpTools, fetchAvailableModels } from '@/api/client';
+import type { AgentConfig, AvailableModel } from '@/types';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -16,11 +17,15 @@ interface Props {
 const defaultSystemPrompt = '你是一个专业的AI助手，擅长分析问题和提供详细的解决方案。请根据用户的需求，给出准确、有用的回答。';
 
 export default function AgentManageModal({ open, onClose }: Props) {
-  const { agentConfigs, activeAgentId, addAgent, removeAgent, updateAgent, setActiveAgent, customModels } = useStore();
+  const { agentConfigs, activeAgentId, addAgent, removeAgent, updateAgent, setActiveAgent } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [availableTools, setAvailableTools] = useState<string[]>([
+    'web_search', 'code_interpreter', 'file_reader', 'image_generator', 'data_analyzer',
+  ]);
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [form, setForm] = useState({
     user_id: '',
-    model_id: 'gpt-4o',
+    model_id: '',
     name: '',
     description: '',
     system_prompt: defaultSystemPrompt,
@@ -29,25 +34,40 @@ export default function AgentManageModal({ open, onClose }: Props) {
     tools: [] as string[],
   });
 
-  const allModels = [
-    { key: 'gpt-4o', label: 'GPT-4o' },
-    { key: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { key: 'deepseek-chat', label: 'DeepSeek Chat' },
-    ...customModels.map((m) => ({ key: m.id, label: `${m.name} (自定义)` })),
-  ];
+  useEffect(() => {
+    fetchMcpTools()
+      .then((data) => {
+        const tools = Array.isArray(data) ? data : (data as Record<string, unknown>)?.tools || [];
+        if (Array.isArray(tools) && tools.length > 0) {
+          const names = tools.map((t: Record<string, unknown>) => String(t.tool_name || t.name || ''));
+          if (names.length > 0) setAvailableTools(names);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-  const availableTools = [
-    'web_search',
-    'code_interpreter',
-    'file_reader',
-    'image_generator',
-    'data_analyzer',
-  ];
+  useEffect(() => {
+    if (open) {
+      fetchAvailableModels()
+        .then((data) => {
+          const models = data as AvailableModel[];
+          setAvailableModels(models);
+          // Auto-select first model if current selection is not in the list
+          if (models.length > 0 && !models.some(m => m.key === form.model_id)) {
+            setForm(f => ({ ...f, model_id: models[0].key }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [open]);
+
+  // Model options come entirely from the database via fetchAvailableModels() API
+  const allModels: { key: string; label: string }[] = availableModels.map((m) => ({ key: m.key, label: m.label }));
 
   const resetForm = () => {
     setForm({
       user_id: '',
-      model_id: 'gpt-4o',
+      model_id: availableModels.length > 0 ? availableModels[0].key : '',
       name: '',
       description: '',
       system_prompt: defaultSystemPrompt,

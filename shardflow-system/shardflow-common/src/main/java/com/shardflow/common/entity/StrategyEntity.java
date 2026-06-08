@@ -10,8 +10,11 @@ import java.time.Instant;
 @TableName("shardflow_strategy")
 public class StrategyEntity {
 
-    @TableId(value = "strategy_id", type = IdType.INPUT)
-    private String strategyId;
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    @TableField("strategy_code")
+    private String strategyCode;
 
     @TableField("user_id")
     private String userId;

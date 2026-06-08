@@ -28,6 +28,8 @@
         <module>shardflow-profile</module>
         <module>shardflow-mcp</module>
         <module>shardflow-task</module>
+        <module>shardflow-config</module>
+        <module>shardflow-kb</module>
         <module>shardflow-app</module>
     </modules>
 
@@ -73,6 +75,16 @@
             <dependency>
                 <groupId>com.shardflow</groupId>
                 <artifactId>shardflow-task</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.shardflow</groupId>
+                <artifactId>shardflow-config</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.shardflow</groupId>
+                <artifactId>shardflow-kb</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

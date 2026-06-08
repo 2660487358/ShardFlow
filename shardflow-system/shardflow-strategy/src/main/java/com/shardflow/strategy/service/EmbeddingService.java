@@ -20,9 +20,7 @@ import java.util.Map;
 @Service
 public class EmbeddingService {
     private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
-    private final HttpClient httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
-        .build();
+    private volatile HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String apiBaseUrl;
@@ -35,6 +33,19 @@ public class EmbeddingService {
         this.apiBaseUrl = apiBaseUrl;
     }
 
+    private HttpClient getHttpClient() {
+        if (httpClient == null) {
+            synchronized (this) {
+                if (httpClient == null) {
+                    httpClient = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build();
+                }
+            }
+        }
+        return httpClient;
+    }
+
     public List<Float> generate(String text) {
         if (apiKey == null || apiKey.isBlank()) {
             log.warn("OpenAI API key not configured, skipping embedding generation");
@@ -44,7 +55,7 @@ public class EmbeddingService {
             String body = objectMapper.writeValueAsString(Map.of(
                 "input", text,
                 "model", "text-embedding-3-small",
-                "dimensions", 1536
+                "dimensions", 768
             ));
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiBaseUrl + "/v1/embeddings"))
@@ -53,7 +64,7 @@ public class EmbeddingService {
                 .timeout(Duration.ofSeconds(10))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = getHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode embedding = root.path("data").get(0).path("embedding");
             List<Float> result = new ArrayList<>();
