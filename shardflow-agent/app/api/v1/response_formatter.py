@@ -215,6 +215,15 @@ async def stream_react_events(state: dict[str, Any], request: Request | None = N
                         loop = output.get("loop_count", 0)
                         usage = output.get("context_usage_ratio", 0)
                         await stream_queue.put(formatter.format_progress(loop, usage))
+
+                        pressure = output.get("_context_pressure")
+                        if pressure:
+                            await stream_queue.put(formatter.format_context_pressure(
+                                pressure["level"],
+                                pressure["usage_ratio"],
+                                pressure["current_tokens"],
+                                pressure["context_limit"],
+                            ))
         except Exception as e:
             await stream_queue.put(formatter.format_error("GRAPH_ERROR", str(e)))
         finally:

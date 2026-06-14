@@ -687,6 +687,15 @@ async def node_check_state(state: dict[str, Any]) -> dict[str, Any]:
     state["context_usage_ratio"] = context_manager.get_context_usage(state)
     state["should_shard"] = context_manager.should_shard(state)
 
+    pressure_level = context_manager.get_pressure_level(state)
+    if pressure_level:
+        state["_context_pressure"] = {
+            "level": pressure_level,
+            "usage_ratio": state["context_usage_ratio"],
+            "current_tokens": token_count,
+            "context_limit": context_manager.MAX_CONTEXT_TOKENS,
+        }
+
     if error_handler.handle_loop_limit(state):
         state = error_handler.format_loop_limit_state(state)
         return state
