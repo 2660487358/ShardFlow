@@ -12,6 +12,7 @@ import { useStore } from '@/store';
 import LoginModal from '@/components/auth/LoginModal';
 import CustomModelModal from '@/components/settings/CustomModelModal';
 import AgentManageModal from '@/components/settings/AgentManageModal';
+import SettingsModal from '@/components/settings/SettingsModal';
 import ShardFlowLogo from '@/components/common/ShardFlowLogo';
 
 const { Text } = Typography;
@@ -38,6 +39,7 @@ export default function AppLayout() {
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [customModelModalOpen, setCustomModelModalOpen] = useState(false);
   const [agentManageModalOpen, setAgentManageModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
   const isAuthenticated = !!token;
 
@@ -222,6 +224,39 @@ export default function AppLayout() {
               </Tooltip>
             ))}
 
+            <Tooltip title="设置" placement="right">
+              <div
+                onClick={() => setSettingsModalOpen(true)}
+                className="nav-item"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  color: 'var(--ink-faint)',
+                  background: 'transparent',
+                  fontWeight: 400,
+                  transition: 'all 0.3s ease',
+                  fontSize: 14,
+                  letterSpacing: '0.08em',
+                  marginBottom: 4,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--ink-faint)';
+                }}
+              >
+                <span style={{ fontSize: 16 }}><SettingOutlined /></span>
+                <span>设置</span>
+              </div>
+            </Tooltip>
+
           </div>
 
           <div className="hand-line" style={{ margin: '0 24px' }} />
@@ -365,6 +400,7 @@ export default function AppLayout() {
       <LoginModal open={loginModalOpen} onClose={() => setLoginModalOpen(false)} />
       <CustomModelModal open={customModelModalOpen} onClose={() => setCustomModelModalOpen(false)} />
       <AgentManageModal open={agentManageModalOpen} onClose={() => setAgentManageModalOpen(false)} />
+      <SettingsModal open={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} />
     </div>
   );
 }

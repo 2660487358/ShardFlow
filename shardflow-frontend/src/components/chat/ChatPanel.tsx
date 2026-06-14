@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Typography, message, Dropdown, Tooltip, Space, Switch } from 'antd';
+import { Input, Button, Typography, message, Dropdown, Tooltip } from 'antd';
 import {
   SendOutlined, PlusOutlined,
   GlobalOutlined, EditOutlined,
   FileAddOutlined, WarningOutlined,
   DownOutlined, UpOutlined,
-  BookOutlined,
+  BookOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -64,7 +64,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     activeTaskId, activeSessionId, updateMessage,
     kbSearchResults, clearKbSearchResults,
     kbActiveMount, setKbActiveMount, kbCollections, setKbCollections,
-    setContextPressure, contextSwitchPreview, setContextSwitchPreview,
+    setContextPressure,
   } = useStore();
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -931,16 +931,12 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                         fontFamily: 'var(--font-sans)',
                       }}
                     >
+                      <RobotOutlined style={{ fontSize: 14 }} />
                       {isUnverifiedCustom && <WarningOutlined style={{ fontSize: 12 }} />}
                       {currentModelLabel}
                     </Button>
                   </Dropdown>
                 )}
-
-                <Space>
-                  <Text style={{ fontSize: 12, color: 'var(--ink-faint)' }}>切换前预览状态包</Text>
-                  <Switch checked={contextSwitchPreview} onChange={setContextSwitchPreview} size="small" />
-                </Space>
 
                 <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
                   <Button
