@@ -11,9 +11,24 @@ export interface ConversationRequest {
 export interface SSEEvent {
   type: 'intent' | 'think' | 'answer' | 'action' | 'observe' | 'progress'
     | 'shard_trigger' | 'shard_result' | 'strategy'
-    | 'profile_applied' | 'shard_resume' | 'kb_search' | 'done' | 'error'
-    | 'heartbeat';
+    | 'profile_applied' | 'shard_resume' | 'kb_search'
+    | 'context_pressure' | 'session_switching'
+    | 'done' | 'error' | 'heartbeat';
   data: Record<string, unknown>;
+}
+
+export interface ContextPressureData {
+  level: 'warning' | 'critical' | 'full';
+  usage_ratio: number;
+  current_tokens: number;
+  context_limit: number;
+  message: string;
+}
+
+export interface SessionSwitchingData {
+  summary_id: string;
+  new_session_id: string;
+  status: string;
 }
 
 export type StreamingPhase = 'idle' | 'thinking' | 'answering' | 'done';
