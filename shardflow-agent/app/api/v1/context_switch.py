@@ -82,6 +82,8 @@ async def switch_context(req: ContextSwitchRequest) -> dict[str, Any]:
             "status": "ready",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Context switch failed")
         raise HTTPException(status_code=500, detail=f"上下文切换失败: {e}")

@@ -144,9 +144,5 @@ class TestContextSwitchAPI:
             with pytest.raises(HTTPException) as exc_info:
                 await switch_context(req)
 
-            # Note: the broad except Exception in switch_context catches
-            # the inner 400 HTTPException and re-wraps as 500.
-            # This behavior is intentional for now; a future refactor
-            # could preserve the original status code.
-            assert exc_info.value.status_code == 500
+            assert exc_info.value.status_code == 400
             assert "Unknown or stale session_id" in exc_info.value.detail
