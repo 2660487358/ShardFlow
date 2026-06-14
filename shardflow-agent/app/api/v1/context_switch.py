@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,9 @@ class ContextSwitchRequest(BaseModel):
     user_id: str
     task_id: str
     session_id: str
+    # Reserved for V1.1 — preview path feature
     preview_enabled: bool = False
+    # Reserved for V1.1 — preview path feature
     preview_selections: dict[str, bool] | None = None
 
 
@@ -40,13 +42,11 @@ async def switch_context(req: ContextSwitchRequest) -> dict[str, Any]:
 
     try:
         # 1. 获取当前短期记忆数据
-        # load_or_create 不存在，改用 get_session；若不存在则创建空会话
         wm_data = working_memory_manager.get_session(req.session_id)
         if wm_data is None:
-            wm_data = working_memory_manager.create_session(
-                user_id=req.user_id,
-                session_id=req.session_id,
-                task_id=req.task_id,
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown or stale session_id: {req.session_id}",
             )
 
         # 2. 将 MessageItem 列表转换为 dict 列表（extract_summary 要求 list[dict]）
