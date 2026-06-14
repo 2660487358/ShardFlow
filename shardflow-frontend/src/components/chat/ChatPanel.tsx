@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Typography, message, Dropdown, Tooltip } from 'antd';
+import { Input, Button, Typography, message, Dropdown, Tooltip, Space, Switch } from 'antd';
 import {
   SendOutlined, PlusOutlined,
   GlobalOutlined, EditOutlined,
@@ -14,6 +14,7 @@ import { sendConversation, fetchAvailableModels, fetchKbCollections } from '@/ap
 import { useStore } from '@/store';
 import ShardFlowLogo from '@/components/common/ShardFlowLogo';
 import KbSearchResults from '@/components/knowledge/KbSearchResults';
+import { ContextPressureToast } from './ContextPressureToast';
 import type { ChatMessage, StreamingPhase } from '@/types';
 
 const { TextArea } = Input;
@@ -63,6 +64,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     activeTaskId, activeSessionId, updateMessage,
     kbSearchResults, clearKbSearchResults,
     kbActiveMount, setKbActiveMount, kbCollections, setKbCollections,
+    setContextPressure, contextSwitchPreview, setContextSwitchPreview,
   } = useStore();
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -190,6 +192,23 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
         }
 
         if (event.type === 'intent') {
+          return;
+        }
+
+        if (event.type === 'context_pressure') {
+          setContextPressure({
+            level: (data.level as string) || 'warning',
+            usage_ratio: (data.usage_ratio as number) || 0,
+            message: (data.message as string) || '',
+          });
+          return;
+        }
+
+        if (event.type === 'session_switching') {
+          const newSessionId = (data.new_session_id as string) || '';
+          if (newSessionId && activeTaskId) {
+            window.location.reload();
+          }
           return;
         }
 
@@ -373,6 +392,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
       height: '100%',
       position: 'relative',
     }}>
+      <ContextPressureToast />
       <div style={{
         flex: 1,
         overflow: 'auto',
@@ -916,6 +936,11 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                     </Button>
                   </Dropdown>
                 )}
+
+                <Space>
+                  <Text style={{ fontSize: 12, color: 'var(--ink-faint)' }}>切换前预览状态包</Text>
+                  <Switch checked={contextSwitchPreview} onChange={setContextSwitchPreview} size="small" />
+                </Space>
 
                 <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
                   <Button
