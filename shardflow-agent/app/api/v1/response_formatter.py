@@ -19,6 +19,8 @@ SSE_EVENT_TYPES = {
     "done": "done",
     "error": "error",
     "heartbeat": "heartbeat",
+    "context_pressure": "context_pressure",
+    "session_switching": "session_switching",
 }
 
 # 兼容过渡：同时发送新旧事件类型，2周过渡期后移除
@@ -88,6 +90,28 @@ class ResponseFormatter:
 
     def format_shard_trigger(self, context_usage: float, suggested: bool = True) -> bytes:
         return self.format_event("shard_trigger", {"context_usage": context_usage, "suggested": suggested})
+
+    def format_context_pressure(self, level: str, usage_ratio: float,
+                                 current_tokens: int, context_limit: int) -> bytes:
+        messages = {
+            "warning": "上下文使用率已达60%",
+            "critical": "上下文使用率已达80%，建议切换以保证输出质量",
+            "full": "上下文已满，请选择操作",
+        }
+        return self.format_event("context_pressure", {
+            "level": level,
+            "usage_ratio": usage_ratio,
+            "current_tokens": current_tokens,
+            "context_limit": context_limit,
+            "message": messages.get(level, ""),
+        })
+
+    def format_session_switching(self, summary_id: str, new_session_id: str) -> bytes:
+        return self.format_event("session_switching", {
+            "summary_id": summary_id,
+            "new_session_id": new_session_id,
+            "status": "ready",
+        })
 
     def format_shard_result(self, shard_id: str, summary: str) -> bytes:
         return self.format_event("shard_result", {"shard_id": shard_id, "summary": summary})
