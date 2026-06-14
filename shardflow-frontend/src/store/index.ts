@@ -44,6 +44,12 @@ interface AppState {
   setAbortController: (c: AbortController | null) => void;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
 
+  // Context pressure
+  contextPressure: { level: string; usage_ratio: number; message: string } | null;
+  setContextPressure: (p: { level: string; usage_ratio: number; message: string } | null) => void;
+  contextSwitchPreview: boolean;
+  setContextSwitchPreview: (v: boolean) => void;
+
   // Task
   tasks: Task[];
   activeTaskId: string | null;
@@ -113,11 +119,21 @@ export const useStore = create<AppState>((set) => ({
   isStreaming: false,
   streamingPhase: 'idle' as StreamingPhase,
   abortController: null,
+  contextPressure: null,
+  contextSwitchPreview: (() => {
+    try { return localStorage.getItem('shardflow_context_switch_preview') === 'true'; }
+    catch { return false; }
+  })(),
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   clearMessages: () => set({ messages: [] }),
   setStreaming: (v) => set({ isStreaming: v }),
   setStreamingPhase: (phase) => set({ streamingPhase: phase }),
   setAbortController: (c) => set({ abortController: c }),
+  setContextPressure: (p) => set({ contextPressure: p }),
+  setContextSwitchPreview: (v) => {
+    try { localStorage.setItem('shardflow_context_switch_preview', String(v)); } catch {}
+    set({ contextSwitchPreview: v });
+  },
   updateMessage: (id, updates) => set((s) => ({
     messages: s.messages.map((m) => m.id === id ? { ...m, ...updates } : m),
   })),
