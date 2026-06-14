@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Input, Button, Typography, message, Dropdown, Tooltip } from 'antd';
 import {
-  SendOutlined, PlusOutlined,
-  GlobalOutlined,
+  SendOutlined,
+  GlobalOutlined, EditOutlined,
   FileAddOutlined, WarningOutlined,
   DownOutlined, UpOutlined,
   BookOutlined, RobotOutlined,
@@ -855,7 +855,6 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
               <Button
                 type="text"
-                icon={<PlusOutlined />}
                 onClick={() => setPlusMenuOpen(!plusMenuOpen)}
                 style={{
                   width: 36,
@@ -941,6 +940,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                 <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
                   <Button
                     type="text"
+                    icon={<EditOutlined />}
                     style={{
                       width: 34,
                       height: 34,
