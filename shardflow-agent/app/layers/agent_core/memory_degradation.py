@@ -111,7 +111,7 @@ class MemoryDegradation:
 
                 try:
                     if memory_type == "long_term":
-                        await callback_client.save_shard({**data, "task_id": key})
+                        await callback_client.session_complete({**data, "task_id": key})
                     elif memory_type == "meta":
                         await callback_client.save_strategy({**data, "strategy_id": key})
                     logger.info(f"Degraded write recovered: {memory_type}/{key}")

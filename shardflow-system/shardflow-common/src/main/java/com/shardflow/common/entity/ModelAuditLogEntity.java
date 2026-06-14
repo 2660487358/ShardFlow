@@ -8,7 +8,7 @@ import java.time.Instant;
 
 @Data
 @NoArgsConstructor
-@TableName("sf_model_audit_log")
+@TableName("shardflow_model_audit_log")
 public class ModelAuditLogEntity {
 
     @TableId(type = IdType.AUTO)

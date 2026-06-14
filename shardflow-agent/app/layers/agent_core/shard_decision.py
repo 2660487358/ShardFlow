@@ -1,4 +1,4 @@
-﻿from typing import Any
+from typing import Any
 
 from app.layers.agent_core.context_manager import context_manager
 
@@ -25,15 +25,8 @@ class ShardDecisionGate:
     def depth_advisor(self, state: dict[str, Any]) -> str:
         """返回通用分析深度建议：OVERVIEW/DETAIL/DEEP_DIVE。
 
-        优先使用用户画像偏好，其次根据 pending 数量推断。
+        根据 pending 数量推断深度。
         """
-        # 优先读取用户画像中的偏好设置
-        user_context = state.get("user_context") or {}
-        preferred = user_context.get("preferred_depth", "")
-        if preferred in ("OVERVIEW", "DETAIL", "DEEP_DIVE"):
-            return preferred
-
-        # 根据 pending 数量推断深度
         pending = state.get("pending", [])
         count = len(pending) if pending else 0
         if count <= 2:

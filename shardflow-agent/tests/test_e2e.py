@@ -50,18 +50,7 @@ def _apply_patches(stack: ExitStack, mock_redis, mock_tool_result=None):
     stack.enter_context(patch(
         "app.infrastructure.redis_client.redis_client.disconnect", AsyncMock(),
     ))
-    stack.enter_context(patch(
-        "app.infrastructure.callback_client.callback_client.save_shard",
-        AsyncMock(return_value={"ok": True}),
-    ))
-    stack.enter_context(patch(
-        "app.infrastructure.callback_client.callback_client.get_shard",
-        AsyncMock(return_value=None),
-    ))
-    stack.enter_context(patch(
-        "app.infrastructure.callback_client.callback_client.save_strategy",
-        AsyncMock(return_value={"ok": True}),
-    ))
+
     stack.enter_context(patch(
         "app.layers.tool.http_executor.http_executor.execute_with_retry",
         AsyncMock(return_value=mock_tool_result),

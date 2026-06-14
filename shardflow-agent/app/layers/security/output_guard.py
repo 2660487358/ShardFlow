@@ -38,9 +38,16 @@ class OutputGuard:
     ]
 
     HARMFUL_PATTERNS: list[str] = [
+        # 英文模式
         r"\b(?:kill|murder|attack)\b.*\b(?:people|person|someone)\b",
         r"\b(?:bomb|weapon|explosive)\b.*\b(?:make|build|create)\b",
         r"\bchild\s*(?:porn|abuse|exploitation)\b",
+        # 中文模式
+        r"(炸弹|爆炸物|武器|枪支|弹药)",
+        r"(黑客|入侵|漏洞利用|网络攻击)",
+        r"(诈骗|欺诈|钓鱼|洗钱)",
+        r"(自杀|自残|轻生)",
+        r"(赌博|毒品|违禁品)",
     ]
 
     def inspect(self, output_text: str) -> dict[str, Any]:

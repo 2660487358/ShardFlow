@@ -4,10 +4,7 @@ COPY pom.xml ./
 COPY shardflow-common/pom.xml ./shardflow-common/
 COPY shardflow-user-context/pom.xml ./shardflow-user-context/
 COPY shardflow-callback/pom.xml ./shardflow-callback/
-COPY shardflow-shard/pom.xml ./shardflow-shard/
-COPY shardflow-strategy/pom.xml ./shardflow-strategy/
 COPY shardflow-auth/pom.xml ./shardflow-auth/
-COPY shardflow-profile/pom.xml ./shardflow-profile/
 COPY shardflow-mcp/pom.xml ./shardflow-mcp/
 COPY shardflow-task/pom.xml ./shardflow-task/
 COPY shardflow-config/pom.xml ./shardflow-config/

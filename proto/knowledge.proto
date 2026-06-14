@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package agent.knowledge;
+
+option java_package = "com.shardflow.kb.grpc";
+option java_multiple_files = false;
+
+// ========== File Upload Task ==========
+
+message UploadTask {
+  string task_id = 1;
+  string kb_id = 2;
+  string minio_url = 3;
+  FileMetadata metadata = 4;
+  int32 priority = 5;
+}
+
+message FileMetadata {
+  string filename = 1;
+  string file_type = 2;
+  int64 file_size = 3;
+  string uploader = 4;
+  string upload_time = 5;  // ISO 8601
+}
+
+message TaskAck {
+  string task_id = 1;
+  bool accepted = 2;
+  string message = 3;
+}
+
+// ========== Service Definition ==========
+
+service KnowledgeService {
+  rpc SubmitUploadTask(UploadTask) returns (TaskAck);
+}

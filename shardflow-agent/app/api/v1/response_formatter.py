@@ -15,11 +15,6 @@ SSE_EVENT_TYPES = {
     "answer": "answer",
     "action": "action",
     "observe": "observe",
-    "shard_trigger": "shard_trigger",
-    "shard_result": "shard_result",
-    "shard_resume": "shard_resume",
-    "strategy": "strategy",
-    "profile_applied": "profile_applied",
     "progress": "progress",
     "done": "done",
     "error": "error",
@@ -30,7 +25,6 @@ SSE_EVENT_TYPES = {
 EVENT_ALIASES: dict[str, list[str]] = {
     "action": ["action", "tool_call_start"],
     "observe": ["observe", "tool_call_result"],
-    "strategy": ["strategy", "strategy_found"],
 }
 
 
@@ -88,6 +82,10 @@ class ResponseFormatter:
             "result": result[:500] if result else "",
         })
 
+    def format_kb_search(self, results: list[dict]) -> bytes:
+        """Format knowledge base search results event for frontend display."""
+        return self._emit("kb_search", {"results": results[:5]})
+
     def format_shard_trigger(self, context_usage: float, suggested: bool = True) -> bytes:
         return self.format_event("shard_trigger", {"context_usage": context_usage, "suggested": suggested})
 
@@ -103,10 +101,10 @@ class ResponseFormatter:
     def format_progress(self, loop: int, context_usage: float, status: str = "") -> bytes:
         return self.format_event("progress", {"loop": loop, "context_usage": context_usage, "status": status})
 
-    def format_done(self, answer: str, shard_id: str = "") -> bytes:
+    def format_done(self, answer: str) -> bytes:
         from app.layers.security.output_guard import output_guard
         masked_answer = output_guard.mask_pii(answer)
-        return self.format_event("done", {"answer": masked_answer, "shard_id": shard_id})
+        return self.format_event("done", {"answer": masked_answer})
 
     def format_error(self, code: str, message: str, recoverable: bool = False) -> bytes:
         return self.format_event("error", {"code": code, "message": message, "recoverable": recoverable})
@@ -189,31 +187,10 @@ async def stream_react_events(state: dict[str, Any], request: Request | None = N
                     if not isinstance(output, dict):
                         continue
 
-                    if node_name == "node_profile_inject":
-                        user_context = output.get("user_context", {})
-                        await stream_queue.put(formatter.format_profile_applied(
-                            user_context.get("expertise_level", "intermediate"),
-                            user_context.get("preferred_depth", "OVERVIEW"),
-                        ))
-
-                    elif node_name == "node_check_state":
+                    if node_name == "node_check_state":
                         loop = output.get("loop_count", 0)
                         usage = output.get("context_usage_ratio", 0)
-                        if output.get("should_shard"):
-                            await stream_queue.put(formatter.format_shard_trigger(usage))
                         await stream_queue.put(formatter.format_progress(loop, usage))
-
-                    elif node_name == "node_shard_extract":
-                        shard = output.get("current_shard", {})
-                        shard_id = shard.get("task_id", state.get("task_id", ""))
-                        summary = str(shard.get("knowledge_state", {}).get("confirmed", []))[:500]
-                        await stream_queue.put(formatter.format_shard_result(shard_id, summary))
-
-                    elif node_name == "node_strategy_search":
-                        decision = output.get("strategy_decision", "COLD_START")
-                        similarity = float(output.get("strategy_similarity", 0.0))
-                        matched_id = output.get("strategy_matched_id", "")
-                        await stream_queue.put(formatter.format_strategy(decision, similarity, matched_id))
         except Exception as e:
             await stream_queue.put(formatter.format_error("GRAPH_ERROR", str(e)))
         finally:
@@ -294,4 +271,4 @@ async def stream_react_events(state: dict[str, Any], request: Request | None = N
             yield formatter.format_answer(chunk)
             await asyncio.sleep(0.01)
 
-    yield formatter.format_done(state.get("final_answer", ""), state.get("shard_id", ""))
+    yield formatter.format_done(state.get("final_answer", ""))

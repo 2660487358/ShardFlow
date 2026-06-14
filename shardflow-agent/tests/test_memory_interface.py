@@ -45,13 +45,14 @@ class TestMemoryModels:
 
     def test_memory_type_enum(self):
         assert MemoryType.SHORT_TERM.value == "short_term"
-        assert MemoryType.LONG_TERM.value == "long_term"
-        assert MemoryType.META.value == "meta"
+        assert MemoryType.SESSION_SUMMARY.value == "session_summary"
+        assert MemoryType.SEMANTIC.value == "semantic"
+        assert MemoryType.EPISODIC.value == "episodic"
 
     def test_memory_record_creation(self):
         record = MemoryRecord(
             key="test-key", user_id="u1",
-            memory_type=MemoryType.LONG_TERM,
+            memory_type=MemoryType.SESSION_SUMMARY,
             data={"fact": "test"},
         )
         assert record.key == "test-key"

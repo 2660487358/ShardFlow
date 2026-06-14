@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Table, Button, Upload, Typography, Tag, message, Space, Progress, Tooltip } from 'antd';
-import { UploadOutlined, ArrowLeftOutlined, DeleteOutlined, LinkOutlined, DisconnectOutlined } from '@ant-design/icons';
-import { fetchKbDocuments, uploadKbDocument, deleteKbDocument } from '@/api/client';
+import { Table, Button, Upload, Typography, Tag, message, Space, Progress, Tooltip, Popconfirm, Alert } from 'antd';
+import { UploadOutlined, ArrowLeftOutlined, DeleteOutlined, LinkOutlined, DisconnectOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
+import { fetchKbDocuments, uploadKbDocument, deleteKbDocument, archiveKbCollection, unarchiveKbCollection } from '@/api/client';
 import { useStore } from '@/store';
-import type { KbDocument } from '@/types';
+import type { KbDocument, KbCollection } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Title, Text } = Typography;
@@ -21,7 +21,7 @@ const statusLabels: Record<string, string> = {
 export default function KnowledgeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { kbCollections, token, kbActiveMount, setKbActiveMount } = useStore();
+  const { kbCollections, setKbCollections, token, kbActiveMount, setKbActiveMount, kbLoading, setKbLoading } = useStore();
   const [docs, setDocs] = useState<KbDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -29,6 +29,39 @@ export default function KnowledgeDetailPage() {
 
   const collection = (Array.isArray(kbCollections) ? kbCollections : []).find((c) => c.id === id);
   const isMounted = kbActiveMount.mounted && kbActiveMount.collectionId === id;
+  const isArchived = collection?.status === 'ARCHIVED';
+
+  const loadCollections = async () => {
+    setKbLoading(true);
+    try {
+      const { fetchKbCollections } = await import('@/api/client');
+      const cols = await fetchKbCollections();
+      const list = Array.isArray(cols) ? cols : (Array.isArray((cols as Record<string, unknown>)?.collections) ? (cols as Record<string, unknown>).collections as KbCollection[] : []);
+      setKbCollections(list);
+    } catch { /* silent */ }
+    finally { setKbLoading(false); }
+  };
+
+  const handleArchive = async () => {
+    if (!collection) return;
+    try {
+      await archiveKbCollection(collection.id);
+      if (kbActiveMount.collectionId === collection.id) {
+        setKbActiveMount({ mounted: false, collectionId: null, collectionName: '' });
+      }
+      message.success(`已归档「${collection.name}」`);
+      await loadCollections();
+    } catch { message.error('归档失败'); }
+  };
+
+  const handleUnarchive = async () => {
+    if (!collection) return;
+    try {
+      await unarchiveKbCollection(collection.id);
+      message.success(`已解档「${collection.name}」`);
+      await loadCollections();
+    } catch { message.error('解档失败'); }
+  };
 
   const handleMountToggle = () => {
     if (isMounted) {
@@ -52,15 +85,50 @@ export default function KnowledgeDetailPage() {
 
   useEffect(() => { loadDocs(); }, [id]);
 
+  // Real-time status updates via WebSocket instead of polling
   useEffect(() => {
-    const hasProcessing = docs.some((d) => ['PENDING', 'PARSING', 'EMBEDDING'].includes(d.status));
-    if (!hasProcessing) return;
-    const timer = setInterval(loadDocs, 3000);
-    return () => clearInterval(timer);
-  }, [docs]);
+    if (!token) return;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number;
+
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.hostname}:8200/ws/kb`;
+      socket = new WebSocket(wsUrl);
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setDocs((prev) => prev.map((d) => {
+            const docId = d.document_code || d.id;
+            if (docId === data.documentId || d.id === data.documentId) {
+              return { ...d, status: data.status, error_msg: data.error || d.error_msg };
+            }
+            return d;
+          }));
+        } catch {}
+      };
+
+      socket.onclose = () => {
+        reconnectTimer = window.setTimeout(connect, 5000);
+      };
+    };
+
+    connect();
+    return () => {
+      socket?.close();
+      clearTimeout(reconnectTimer);
+    };
+  }, [token]);
+
+  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
   const handleUpload = async (file: File) => {
     if (!id) return;
+    if (file.size > MAX_FILE_SIZE) {
+      message.error(`文件大小超过 20MB 限制（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB）`);
+      return false;
+    }
     setUploading(true);
     setUploadProgress(0);
     try {
@@ -122,12 +190,14 @@ export default function KnowledgeDetailPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Title level={3} style={{ margin: 0 }}>{collection?.name || '知识库'}</Title>
             {isMounted && <Tag icon={<LinkOutlined />} color="green" style={{ fontSize: 13, padding: '4px 10px' }}>已挂载到当前会话</Tag>}
+            {isArchived && <Tag color="default" style={{ fontSize: 13, padding: '4px 10px' }}>已归档</Tag>}
           </div>
           <Space>
             <Tooltip title={isMounted ? '取消挂载到当前会话' : '挂载到当前会话'}>
               <Button
                 icon={isMounted ? <DisconnectOutlined /> : <LinkOutlined />}
                 onClick={handleMountToggle}
+                disabled={isArchived}
                 style={{
                   color: 'var(--accent-warm)',
                   border: '1px solid var(--accent)',
@@ -137,11 +207,38 @@ export default function KnowledgeDetailPage() {
                 {isMounted ? '取消挂载' : '挂载到会话'}
               </Button>
             </Tooltip>
+            {isArchived ? (
+              <Popconfirm
+                title="确定解档此知识库？"
+                description="解档后可以继续上传文档和挂载使用"
+                onConfirm={handleUnarchive}
+              >
+                <Button icon={<RollbackOutlined />}>解档</Button>
+              </Popconfirm>
+            ) : (
+              <Popconfirm
+                title="确定归档此知识库？"
+                description="归档后将无法上传文档，且会自动取消挂载"
+                onConfirm={handleArchive}
+              >
+                <Button icon={<InboxOutlined />}>归档</Button>
+              </Popconfirm>
+            )}
             <Upload beforeUpload={handleUpload} showUploadList={false} accept=".pdf,.docx,.md,.txt,.py,.java,.ts,.tsx,.js,.go,.rs,.yaml,.yml,.json,.xml">
-              <Button type="primary" icon={<UploadOutlined />} loading={uploading}>上传文档</Button>
+              <Button type="primary" icon={<UploadOutlined />} loading={uploading} disabled={isArchived}>上传文档</Button>
             </Upload>
           </Space>
         </div>
+
+        {isArchived && (
+          <Alert
+            message="此知识库已归档"
+            description="归档状态下无法上传文档和挂载到会话。如需恢复使用，请点击「解档」按钮。"
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
 
         {collection?.description && (
           <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>{collection.description}</Text>

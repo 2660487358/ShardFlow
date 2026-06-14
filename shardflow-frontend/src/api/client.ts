@@ -85,6 +85,13 @@ function handleAuthExpired() {
   localStorage.removeItem('shardflow_refresh_token');
   localStorage.removeItem('shardflow_user_id');
   localStorage.removeItem('shardflow_token_expires_at');
+  // 清除与用户关联的缓存数据，防止数据库迁移后残留旧数据
+  localStorage.removeItem('shardflow_custom_models');
+  localStorage.removeItem('shardflow_agents');
+  localStorage.removeItem('shardflow_active_agent');
+  // 同步更新 Zustand store 的 token 状态，否则 UI 仍然显示已登录
+  const { logout } = useStore.getState();
+  logout();
   window.dispatchEvent(new CustomEvent('shardflow:auth-expired'));
 }
 
@@ -219,6 +226,9 @@ export async function sendConversation(
       stream: true,
       kb_collection_name: useStore.getState().kbActiveMount.mounted
         ? `kb_chunks_${useStore.getState().userId}`
+        : '',
+      kb_id: useStore.getState().kbActiveMount.mounted
+        ? useStore.getState().kbActiveMount.collectionId || ''
         : '',
     }),
     signal,
@@ -361,26 +371,89 @@ export async function fetchTaskHistory(params?: { status?: string; limit?: numbe
 
 // ---- MCP Tools API ----
 
+/** @deprecated Use fetchMcpToolList instead */
 export async function fetchMcpTools(status?: string): Promise<unknown> {
   const { data } = await systemApi.get('/mcp/registry/tools', { params: status ? { status } : {} });
   return data.data || data;
 }
 
+// ---- MCP Management API ----
+
+export async function fetchMcpToolList(params?: { status?: string; category?: string; keyword?: string; page?: number; size?: number }): Promise<McpToolListResult> {
+  const { data } = await systemApi.get('/mcp/registry/tools', { params });
+  return data.data || data;
+}
+
+export async function fetchMcpToolDetail(toolId: string): Promise<McpTool> {
+  const { data } = await systemApi.get(`/mcp/registry/tools/${toolId}`);
+  return data.data || data;
+}
+
+export async function registerMcpTool(request: McpToolRegisterRequest): Promise<unknown> {
+  const { data } = await systemApi.post('/mcp/registry/tools', request);
+  return data.data || data;
+}
+
+export async function updateMcpTool(toolId: string, request: McpToolRegisterRequest): Promise<unknown> {
+  const { data } = await systemApi.put(`/mcp/registry/tools/${toolId}`, request);
+  return data.data || data;
+}
+
+export async function deleteMcpTool(toolId: string): Promise<void> {
+  await systemApi.delete(`/mcp/registry/tools/${toolId}`);
+}
+
+export async function changeMcpToolStatus(toolId: string, status: string): Promise<unknown> {
+  const { data } = await systemApi.put(`/mcp/registry/tools/${toolId}/status`, { status });
+  return data.data || data;
+}
+
+export async function checkMcpToolHealth(toolId: string): Promise<McpHealthCheckResult> {
+  const { data } = await systemApi.get(`/mcp/registry/tools/${toolId}/health`);
+  return data.data || data;
+}
+
+export async function fetchMcpToolVersions(toolId: string): Promise<McpVersionResult> {
+  const { data } = await systemApi.get(`/mcp/registry/tools/${toolId}/versions`);
+  return data.data || data;
+}
+
+export async function rollbackMcpToolVersion(toolId: string, targetVersion?: string): Promise<unknown> {
+  const { data } = await systemApi.put(`/mcp/registry/tools/${toolId}/rollback`, { targetVersion });
+  return data.data || data;
+}
+
+export async function fetchMcpMetadataAuditLogs(params?: { toolId?: string; operationType?: string; page?: number; size?: number }): Promise<McpAuditLogResult> {
+  const { data } = await systemApi.get('/mcp/registry/audit/metadata', { params });
+  return data.data || data;
+}
+
+export async function fetchMcpCallAuditLogs(params?: { toolId?: string; status?: string; page?: number; size?: number }): Promise<McpAuditLogResult> {
+  const { data } = await systemApi.get('/mcp/registry/audit/calls', { params });
+  return data.data || data;
+}
+
 // ---- Strategy API ----
+
+export async function fetchStrategies(taskType?: string): Promise<unknown> {
+  const { data } = await systemApi.get('/strategies', { params: taskType ? { taskType } : {} });
+  const result = data.data || data;
+  return result.strategies || result;
+}
 
 export async function searchStrategies(taskType: string, query: string, limit?: number): Promise<unknown> {
   const { data } = await systemApi.post('/strategies/search', { task_type: taskType, query, limit: limit || 5 });
   return data.data || data;
 }
 
-export async function submitStrategyFeedback(strategyId: string, feedback: string, comment?: string): Promise<unknown> {
-  const { data } = await systemApi.post(`/strategies/${strategyId}/feedback`, { feedback, comment });
+export async function submitStrategyFeedback(strategyId: string, score: number): Promise<unknown> {
+  const { data } = await systemApi.post(`/strategies/${strategyId}/feedback`, { score });
   return data.data || data;
 }
 
 // ---- Knowledge Base API ----
 
-import type { KbCollection, KbDocument } from '@/types';
+import type { KbCollection, KbDocument, McpToolListResult, McpTool, McpToolRegisterRequest, McpHealthCheckResult, McpVersionResult, McpAuditLogResult } from '@/types';
 
 export async function fetchKbCollections(): Promise<KbCollection[]> {
   const { data } = await systemApi.get('/kb/collections');
@@ -400,6 +473,16 @@ export async function updateKbCollection(id: string, payload: { name?: string; d
 
 export async function deleteKbCollection(id: string): Promise<void> {
   await systemApi.delete(`/kb/collections/${id}`);
+}
+
+export async function archiveKbCollection(id: string): Promise<KbCollection> {
+  const { data } = await systemApi.put(`/kb/collections/${id}/archive`);
+  return data.data || data;
+}
+
+export async function unarchiveKbCollection(id: string): Promise<KbCollection> {
+  const { data } = await systemApi.put(`/kb/collections/${id}/unarchive`);
+  return data.data || data;
 }
 
 export async function fetchKbDocuments(collectionId: string): Promise<KbDocument[]> {
@@ -485,8 +568,20 @@ export async function updateCustomModelApi(id: string, payload: Record<string, u
 }
 
 export async function deleteCustomModelApi(id: string): Promise<void> {
-  const { data } = await systemApi.delete(`/models/custom/${id}`);
-  checkResultCode(data.data || data);
+  try {
+    const { data } = await systemApi.delete(`/models/custom/${id}`);
+    checkResultCode(data.data || data);
+  } catch (err: unknown) {
+    // 404 means the model already doesn't exist on the server (e.g. after DB migration).
+    // Treat as success — the goal of deletion is achieved.
+    if (err && typeof err === 'object' && 'response' in err) {
+      const resp = (err as { response?: { status?: number } }).response;
+      if (resp?.status === 404) return;
+    }
+    // If the error itself is from checkResultCode with code 404
+    if (err instanceof Error && (err as Error & { code?: number }).code === 404) return;
+    throw err;
+  }
 }
 
 // ---- Verify Custom Model ----

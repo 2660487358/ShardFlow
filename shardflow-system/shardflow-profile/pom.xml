@@ -6,8 +6,9 @@
     <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.2.0</version></parent>
     <artifactId>shardflow-profile</artifactId>
     <name>ShardFlow Profile</name>
-    <description>用户画像模块</description>
+    <description>用户画像服务模块 — UserProfile CRUD + Redis缓存同步</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
     </dependencies>
 </project>

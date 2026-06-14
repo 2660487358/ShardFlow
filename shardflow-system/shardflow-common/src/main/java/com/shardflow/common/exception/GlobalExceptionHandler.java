@@ -15,20 +15,6 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(ShardNotFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Result<Void> handleShardNotFound(ShardNotFoundException e) {
-        log.warn("Shard not found: {}", e.getMessage());
-        return Result.fail(404, e.getMessage());
-    }
-
-    @ExceptionHandler(StrategyNotFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Result<Void> handleStrategyNotFound(StrategyNotFoundException e) {
-        log.warn("Strategy not found: {}", e.getMessage());
-        return Result.fail(404, e.getMessage());
-    }
-
     @ExceptionHandler(UserMismatchException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<Void> handleUserMismatch(UserMismatchException e) {

@@ -18,7 +18,6 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     log_level: str = "INFO"
-    shard_cache_ttl: int = 1800
 
     # ── 服务间认证 ──
     java_api_key: str = ""
@@ -64,6 +63,20 @@ class Settings(BaseSettings):
     kb_supported_extensions: str = ".pdf,.docx,.md,.txt,.py,.java,.ts,.tsx,.js,.go,.rs,.yaml,.yml,.json,.xml"
     kb_max_file_size_mb: int = 20
     kb_enabled: bool = True
+    grpc_port: int = 50051
+
+    # ── MinIO ──
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_bucket: str = "shardflow-kb"
+
+    # ── RabbitMQ ──
+    rabbitmq_host: str = "localhost"
+    rabbitmq_port: int = 5672
+    rabbitmq_user: str = "guest"
+    rabbitmq_password: str = "guest"
+    rabbitmq_vhost: str = "/"
 
     # ── 输出行为规范配置（企业级Agent模型输出行为规范）──
     # 思考过程展示模式: hidden=完全隐藏 | summary=一句话摘要 | detailed=折叠面板

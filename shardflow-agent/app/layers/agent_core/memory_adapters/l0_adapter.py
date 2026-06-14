@@ -1,4 +1,4 @@
-"""L0CacheAdapter — in-process LRU memory adapter implementing MemoryStore Protocol.
+"""L0CacheAdapter — in-process LRU memory adapter.
 
 Wraps the existing L0Cache (OrderedDict-based LRU) for sub-millisecond reads.
 Used as the first tier in CompositeAdapter's L0→L1→L2 degrade-read chain.
@@ -13,7 +13,7 @@ from app.models.memory import MemoryRecord, MemoryQuery, MemoryType
 
 
 class L0CacheAdapter:
-    """Wraps L0Cache as a MemoryStore implementation for sub-ms local reads."""
+    """Wraps L0Cache for sub-ms local reads."""
 
     def __init__(self, max_size: int = 256) -> None:
         self._cache = L0Cache(max_size=max_size)
@@ -55,7 +55,7 @@ class L0CacheAdapter:
         # L0 is not optimized for search — delegate to higher tiers
         prefix = self._build_key(user_id, memory_type, "")
         results: list[MemoryRecord] = []
-        for cache_key, record in list(self._cache._cache.items()):
+        for cache_key, record in self._cache.items():
             if cache_key.startswith(prefix) and isinstance(record, MemoryRecord):
                 if not query.tags or any(t in record.tags for t in query.tags):
                     results.append(record)

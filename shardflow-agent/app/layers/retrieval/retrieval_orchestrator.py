@@ -277,53 +277,6 @@ class WebSearchAdapter(SearchAdapter):
 
 
 # ---------------------------------------------------------------------------
-# ProfileSearch Adapter — 用户画像检索
-# ---------------------------------------------------------------------------
-
-class ProfileSearchAdapter(SearchAdapter):
-    """用户画像检索适配器，获取用户偏好、专业领域、交互习惯。"""
-
-    def __init__(self) -> None:
-        super().__init__("profile", rate=20.0, burst=10)
-
-    async def search(self, query: str) -> list[SearchResult]:
-        if not await self._bucket.acquire():
-            return []
-
-        try:
-            from app.layers.retrieval.profile_searcher import profile_searcher
-            # query 格式: "preferences:{user_id}" / "expertise:{user_id}" / "habits:{user_id}"
-            parts = query.split(":", 1)
-            search_type = parts[0] if len(parts) > 1 else "preferences"
-            user_id = parts[1] if len(parts) > 1 else query
-
-            profile = await profile_searcher.get_full_profile(user_id)
-            if profile is None:
-                return []
-
-            if search_type == "preferences":
-                data = profile.preferences.model_dump()
-            elif search_type == "expertise":
-                data = profile.expertise.model_dump()
-            elif search_type == "habits":
-                data = profile.habits.model_dump()
-            else:
-                data = profile.to_inject_dict()
-
-            return [SearchResult(
-                source="profile",
-                title=f"User Profile: {user_id}",
-                snippet=str(data)[:500],
-                url=f"internal://profile/{user_id}",
-                relevance_score=1.0,
-                metadata=data,
-            )]
-        except Exception as e:
-            logger.warning(f"ProfileSearch failed: {e}")
-            return []
-
-
-# ---------------------------------------------------------------------------
 # Orchestrator — parallel multi-source search with degradation
 # ---------------------------------------------------------------------------
 
@@ -348,7 +301,7 @@ class RetrievalOrchestrator:
         "code_explore":      ["github", "stackoverflow", "official_doc"],
         "code_fix":          ["stackoverflow", "github", "official_doc"],
         "design_proposal":   ["official_doc", "github", "web_search"],
-        "continue_task":     ["profile", "read_file"],
+        "continue_task":     ["read_file"],
         "feedback":          [],
         "message_send":      [],
         "notification":      [],
@@ -360,7 +313,6 @@ class RetrievalOrchestrator:
         self.stackoverflow = StackOverflowAdapter()
         self.github = GitHubAdapter()
         self.web_search = WebSearchAdapter()
-        self.profile = ProfileSearchAdapter()
 
     def _enabled_sources(self) -> list[str]:
         return [s.strip() for s in settings.retrieval_sources_enabled.split(",") if s.strip()]
@@ -375,7 +327,6 @@ class RetrievalOrchestrator:
             "stackoverflow": self.stackoverflow,
             "github": self.github,
             "web_search": self.web_search,
-            "profile": self.profile,
             "read_file": None,  # read_file 不是检索适配器，由工具层处理
         }
         return mapping.get(source)
@@ -389,7 +340,8 @@ class RetrievalOrchestrator:
 
     async def multi_source_search(self, query: str, user_id: str = "",
                                   intent: str = "",
-                                  kb_collection_name: str = "") -> list[SearchResult]:
+                                  kb_collection_name: str = "",
+                                  kb_id: str = "") -> list[SearchResult]:
         """多源并行检索。
 
         Args:
@@ -397,6 +349,7 @@ class RetrievalOrchestrator:
             user_id: 用户 ID（用于 profile 检索）
             intent: 意图类型（可选）。提供时按意图选择源，否则使用全局配置。
             kb_collection_name: 知识库 Milvus collection 名（非空时挂载知识库检索）
+            kb_id: 知识库 ID（用于在 collection 内按 kb_id 过滤检索结果）
 
         Returns:
             合并排序后的搜索结果列表
@@ -416,7 +369,7 @@ class RetrievalOrchestrator:
         if kb_collection_name and "knowledge_base" in sources:
             from app.layers.retrieval.knowledge_searcher import knowledge_searcher
             kb_task = asyncio.create_task(
-                knowledge_searcher.search(query, kb_collection_name),
+                knowledge_searcher.search(query, kb_collection_name, kb_id=kb_id or None),
                 name="search_knowledge_base",
             )
 

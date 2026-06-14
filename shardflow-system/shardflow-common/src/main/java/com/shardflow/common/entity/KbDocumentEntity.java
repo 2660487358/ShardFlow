@@ -31,6 +31,12 @@ public class KbDocumentEntity {
     @TableField("file_size")
     private Long fileSize;
 
+    @TableField("minio_url")
+    private String minioUrl;
+
+    @TableField("parse_strategy")
+    private String parseStrategy;
+
     @TableField("status")
     private String status;
 

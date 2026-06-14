@@ -1,14 +1,12 @@
 import { Empty, Typography } from 'antd';
 import { useStore } from '@/store';
-import ShardViewer from '@/components/shard/ShardViewer';
-import StrategyPanel from '@/components/strategy/StrategyPanel';
 import SourceVisualization from '@/components/source/SourceVisualization';
 
 const { Title } = Typography;
 
 export default function WorkspacePage() {
-  const { activeTaskId, currentShard } = useStore();
-  const hasActiveWork = !!activeTaskId || !!currentShard;
+  const { activeTaskId } = useStore();
+  const hasActiveWork = !!activeTaskId;
 
   return (
     <div style={{ padding: 32 }}>
@@ -24,8 +22,6 @@ export default function WorkspacePage() {
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <ShardViewer />
-          <StrategyPanel />
           <SourceVisualization />
         </div>
       )}

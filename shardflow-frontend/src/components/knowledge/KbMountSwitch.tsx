@@ -10,17 +10,22 @@ export default function KbMountSwitch() {
   const { kbActiveMount, setKbActiveMount, kbCollections, setKbCollections } = useStore();
   const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
 
+  const [error, setError] = useState(false);
+
   useEffect(() => {
     loadOptions();
   }, []);
 
   const loadOptions = async () => {
+    setError(false);
     try {
       const cols = await fetchKbCollections();
       const list = Array.isArray(cols) ? cols : [];
       setKbCollections(list);
       setOptions(list.filter((c) => c.status === 'ACTIVE').map((c) => ({ value: c.id, label: c.name })));
-    } catch { /* silently fail */ }
+    } catch {
+      setError(true);
+    }
   };
 
   const handleToggle = (checked: boolean) => {
@@ -57,8 +62,12 @@ export default function KbMountSwitch() {
           size="small"
           style={{ minWidth: 140 }}
           placeholder="选择知识库"
-          onClick={() => { if (options.length === 0) loadOptions(); }}
-          notFoundContent={<Text type="secondary" style={{ fontSize: 12 }}>暂无知识库</Text>}
+          onClick={() => { if (options.length === 0 && !error) loadOptions(); }}
+          notFoundContent={
+            error
+              ? <Text type="danger" style={{ fontSize: 12 }}>加载失败，点击重试</Text>
+              : <Text type="secondary" style={{ fontSize: 12 }}>暂无知识库</Text>
+          }
         />
       )}
     </Space>

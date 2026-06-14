@@ -9,11 +9,8 @@ Message format:  {"action":"write"|"delete","key":"...","version":N}
 
 --- 业务事件（v2 新增） ---
 
-5 种业务事件类型，发布到统一的 "shardflow:{user_id}:events" 频道：
-- shard_created:        ContextShard 提取完成
+2 种业务事件类型，发布到统一的 "shardflow:{user_id}:events" 频道：
 - session_completed:    会话结束
-- strategy_updated:     策略更新
-- profile_updated:      画像变更 → 使 ProfileSearcher 缓存失效
 - mcp_tool_status_changed: MCP 工具状态变更 → 刷新 ToolRegistry
 """
 import asyncio
@@ -28,12 +25,9 @@ logger = logging.getLogger(__name__)
 CHANNEL_PREFIX = "shardflow:events:memory"
 BUSINESS_EVENTS_CHANNEL = "shardflow:{user_id}:events"
 
-# 5 种业务事件类型
+# 2 种业务事件类型
 VALID_BUSINESS_EVENT_TYPES = frozenset({
-    "shard_created",
     "session_completed",
-    "strategy_updated",
-    "profile_updated",
     "mcp_tool_status_changed",
 })
 
@@ -129,10 +123,10 @@ HandlerFunc = Callable[[str, str, dict[str, Any]], Awaitable[None]]
 
 
 class BusinessEvents:
-    """业务事件发布/订阅 — 5 种跨进程事件通知。
+    """业务事件发布/订阅 — 2 种跨进程事件通知。
 
     频道模式: kb:{user_id}:events
-    消息格式: {"event_type": "profile_updated", "payload": {"user_id": "...", ...}, "timestamp": "ISO8601"}
+    消息格式: {"event_type": "mcp_tool_status_changed", "payload": {"user_id": "...", ...}, "timestamp": "ISO8601"}
     """
 
     MAX_RECONNECT_DELAY = 60.0  # 最大重连间隔（秒）
@@ -299,17 +293,6 @@ class BusinessEvents:
 # Built-in Event Handlers
 # ------------------------------------------------------------------
 
-async def _on_profile_updated(user_id: str, event_type: str,
-                               payload: dict[str, Any]) -> None:
-    """画像更新 → 使 ProfileSearcher 缓存失效。"""
-    try:
-        from app.layers.retrieval.profile_searcher import profile_searcher
-        await profile_searcher.invalidate_cache(user_id)
-        logger.info(f"Profile cache invalidated for user={user_id} via Pub/Sub")
-    except Exception as e:
-        logger.warning(f"Failed to invalidate profile cache: {e}")
-
-
 async def _on_mcp_tool_status_changed(user_id: str, event_type: str,
                                        payload: dict[str, Any]) -> None:
     """MCP 工具状态变更 → 刷新 ToolRegistry MCP 工具列表。"""
@@ -321,13 +304,6 @@ async def _on_mcp_tool_status_changed(user_id: str, event_type: str,
         logger.warning(f"Failed to refresh MCP tools: {e}")
 
 
-async def _on_shard_created(user_id: str, event_type: str,
-                             payload: dict[str, Any]) -> None:
-    """ContextShard 创建 → 日志记录。"""
-    task_id = payload.get("task_id", "unknown")
-    logger.info(f"Shard created: user={user_id}, task={task_id}")
-
-
 async def _on_session_completed(user_id: str, event_type: str,
                                  payload: dict[str, Any]) -> None:
     """会话完成 → 日志记录。"""
@@ -335,17 +311,7 @@ async def _on_session_completed(user_id: str, event_type: str,
     logger.info(f"Session completed: user={user_id}, task={task_id}")
 
 
-async def _on_strategy_updated(user_id: str, event_type: str,
-                                payload: dict[str, Any]) -> None:
-    """策略更新 → 日志记录（后续可扩展：刷新本地策略缓存）。"""
-    strategy_id = payload.get("strategy_id", "unknown")
-    logger.info(f"Strategy updated: user={user_id}, strategy={strategy_id}")
-
-
 # 全局单例，启动时自动注册内置处理器
 business_events = BusinessEvents()
-business_events.on("profile_updated", _on_profile_updated)
 business_events.on("mcp_tool_status_changed", _on_mcp_tool_status_changed)
-business_events.on("shard_created", _on_shard_created)
 business_events.on("session_completed", _on_session_completed)
-business_events.on("strategy_updated", _on_strategy_updated)

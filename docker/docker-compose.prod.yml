@@ -63,14 +63,14 @@ services:
     ports:
       - "8081:8200"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${SF_INFRA_MYSQL_DATABASE:-shardflow}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-      - SPRING_DATASOURCE_USERNAME=${SF_INFRA_MYSQL_USER:-shardflow}
-      - SPRING_DATASOURCE_PASSWORD=${SF_INFRA_MYSQL_PASSWORD:-shardflow}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${SF_INFRA_POSTGRES_DATABASE:-shardflow}?currentSchema=public&stringtype=unspecified
+      - SPRING_DATASOURCE_USERNAME=${SF_INFRA_POSTGRES_USER:-shardflow}
+      - SPRING_DATASOURCE_PASSWORD=${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
       - SPRING_DATA_REDIS_HOST=redis-sentinel
       - SF_SYSTEM_JAVA_API_KEY=${SF_AGENT_JAVA_API_KEY:-}
       - SA_TOKEN_JWT_SECRET_KEY=${SA_TOKEN_JWT_SECRET_KEY:-ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     deploy:
@@ -102,21 +102,20 @@ services:
     restart: unless-stopped
 
   # =========================================================================
-  # MySQL（业务数据）
+  # PostgreSQL（业务数据）
   # =========================================================================
-  mysql:
-    image: mysql:8.0
+  postgres:
+    image: postgres:18-alpine
     ports:
-      - "${SF_INFRA_MYSQL_PORT:-3306}:3306"
+      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
     environment:
-      MYSQL_ROOT_PASSWORD: ${SF_INFRA_MYSQL_ROOT_PASSWORD:-shardflow}
-      MYSQL_DATABASE: ${SF_INFRA_MYSQL_DATABASE:-shardflow}
-      MYSQL_USER: ${SF_INFRA_MYSQL_USER:-shardflow}
-      MYSQL_PASSWORD: ${SF_INFRA_MYSQL_PASSWORD:-shardflow}
+      POSTGRES_DB: ${SF_INFRA_POSTGRES_DATABASE:-shardflow}
+      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
+      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
     volumes:
-      - mysql-data:/var/lib/mysql
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U ${SF_INFRA_POSTGRES_USER:-shardflow} -d ${SF_INFRA_POSTGRES_DATABASE:-shardflow}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -180,5 +179,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  mysql-data:
+  postgres-data:
   minio-data:

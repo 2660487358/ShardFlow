@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Modal, Input, Typography, Empty, Spin, message, Popconfirm, Tag, Tooltip } from 'antd';
-import { PlusOutlined, BookOutlined, DeleteOutlined, EditOutlined, SearchOutlined, LinkOutlined, DisconnectOutlined } from '@ant-design/icons';
-import { fetchKbCollections, createKbCollection, updateKbCollection, deleteKbCollection } from '@/api/client';
+import { PlusOutlined, BookOutlined, DeleteOutlined, EditOutlined, SearchOutlined, LinkOutlined, DisconnectOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
+import { fetchKbCollections, createKbCollection, updateKbCollection, deleteKbCollection, archiveKbCollection, unarchiveKbCollection } from '@/api/client';
 import { useStore } from '@/store';
 import type { KbCollection } from '@/types';
 
@@ -96,6 +96,26 @@ export default function KnowledgePage() {
 
   const isMounted = (col: KbCollection) => kbActiveMount.mounted && kbActiveMount.collectionId === col.id;
 
+  const handleArchive = async (col: KbCollection) => {
+    try {
+      await archiveKbCollection(col.id);
+      // 如果归档的是当前挂载的知识库，取消挂载
+      if (kbActiveMount.collectionId === col.id) {
+        setKbActiveMount({ mounted: false, collectionId: null, collectionName: '' });
+      }
+      message.success(`已归档「${col.name}」`);
+      await loadCollections();
+    } catch { message.error('归档失败'); }
+  };
+
+  const handleUnarchive = async (col: KbCollection) => {
+    try {
+      await unarchiveKbCollection(col.id);
+      message.success(`已解档「${col.name}」`);
+      await loadCollections();
+    } catch { message.error('解档失败'); }
+  };
+
   const safeCollections = Array.isArray(kbCollections) ? kbCollections : [];
   const filteredCollections = safeCollections.filter((col) => {
     if (!searchText.trim()) return true;
@@ -168,7 +188,7 @@ export default function KnowledgePage() {
                       icon={isMounted(col) ? <LinkOutlined /> : <DisconnectOutlined />}
                       onClick={(e) => { e.stopPropagation(); handleMount(col); }}
                       style={{
-                        color: isMounted(col) ? 'var(--accent-warm)' : 'var(--accent-warm)',
+                        color: 'var(--accent-warm)',
                         border: '1px solid var(--accent)',
                         background: isMounted(col) ? 'rgba(201,168,124,0.15)' : 'transparent',
                       }}
@@ -180,6 +200,27 @@ export default function KnowledgePage() {
                     icon={<EditOutlined />}
                     onClick={(e) => { e.stopPropagation(); handleEdit(col); }}
                   />,
+                  col.status === 'ARCHIVED' ? (
+                    <Popconfirm
+                      key="unarchive"
+                      title="确定解档此知识库？"
+                      description="解档后可以继续上传文档和挂载使用"
+                      onConfirm={(e) => { e?.stopPropagation(); handleUnarchive(col); }}
+                      onCancel={(e) => e?.stopPropagation()}
+                    >
+                      <Button type="text" icon={<RollbackOutlined />} onClick={(e) => e.stopPropagation()} />
+                    </Popconfirm>
+                  ) : (
+                    <Popconfirm
+                      key="archive"
+                      title="确定归档此知识库？"
+                      description="归档后将无法上传文档，且会自动取消挂载"
+                      onConfirm={(e) => { e?.stopPropagation(); handleArchive(col); }}
+                      onCancel={(e) => e?.stopPropagation()}
+                    >
+                      <Button type="text" icon={<InboxOutlined />} onClick={(e) => e.stopPropagation()} />
+                    </Popconfirm>
+                  ),
                   <Popconfirm
                     key="delete"
                     title="确定删除此知识库？"

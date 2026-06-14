@@ -44,12 +44,7 @@ async def test_node_shard_extract_uses_memory_orchestrator():
               AsyncMock(return_value=mock_redis)),
         patch("app.infrastructure.redis_client.redis_client.connect", AsyncMock()),
         patch("app.infrastructure.redis_client.redis_client.disconnect", AsyncMock()),
-        patch("app.infrastructure.callback_client.callback_client.save_shard",
-              AsyncMock(return_value={"ok": True})),
-        patch("app.infrastructure.callback_client.callback_client.get_shard",
-              AsyncMock(return_value=None)),
-        patch("app.infrastructure.callback_client.callback_client.save_strategy",
-              AsyncMock(return_value={"ok": True})),
+
         patch("app.layers.tool.http_executor.http_executor.execute_with_retry",
               AsyncMock(return_value=mock_tool_result)),
         patch("app.layers.reasoning.error_handler.error_handler.MAX_LOOP_COUNT", 3),

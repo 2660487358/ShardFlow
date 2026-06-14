@@ -6,8 +6,9 @@
     <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.2.0</version></parent>
     <artifactId>shardflow-shard</artifactId>
     <name>ShardFlow Shard</name>
-    <description>状态包持久化模块</description>
+    <description>会话状态摘要服务模块 — SessionStateSummary CRUD + Redis缓存同步</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
     </dependencies>
 </project>

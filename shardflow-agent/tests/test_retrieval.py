@@ -1,10 +1,11 @@
-﻿import pytest
+import pytest
 
 from app.layers.retrieval.retrieval_orchestrator import retrieval_orchestrator
 from app.layers.tool.http_executor import http_executor
 from app.layers.tool.result_parser import result_parser
 from app.layers.tool.tool_registry import tool_registry
-from app.models.search_result import SearchResult, ToolMetadata
+from app.layers.agent_core.mcp_client import MCPToolInfo
+from app.models.search_result import SearchResult
 
 
 class TestToolRegistry:
@@ -14,22 +15,22 @@ class TestToolRegistry:
 
     def test_get_known_tool(self):
         tool = tool_registry.get("read_file")
-        assert tool.name == "read_file"
+        assert tool.tool_name == "read_file"
 
     def test_get_unknown_tool_raises(self):
         with pytest.raises(KeyError):
             tool_registry.get("nonexistent")
 
     def test_validate_input_valid(self):
-        tool_registry.register(ToolMetadata(
-            name="test_tool", description="test",
+        tool_registry.register(MCPToolInfo(
+            tool_id="test-id-1", tool_name="test_tool", description="test",
             input_schema={"required": ["query"]},
         ))
         assert tool_registry.validate_input("test_tool", {"query": "hello"}) is True
 
     def test_validate_input_missing_required(self):
-        tool_registry.register(ToolMetadata(
-            name="test_tool2", description="test",
+        tool_registry.register(MCPToolInfo(
+            tool_id="test-id-2", tool_name="test_tool2", description="test",
             input_schema={"required": ["query"]},
         ))
         assert tool_registry.validate_input("test_tool2", {}) is False

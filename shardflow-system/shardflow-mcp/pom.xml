@@ -9,5 +9,12 @@
     <description>MCP 工具注册中心模块</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
+        <!-- JSON Schema 校验 -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>1.5.6</version>
+        </dependency>
     </dependencies>
 </project>

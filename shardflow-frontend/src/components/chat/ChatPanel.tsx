@@ -5,13 +5,15 @@ import {
   GlobalOutlined, EditOutlined,
   FileAddOutlined, WarningOutlined,
   DownOutlined, UpOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { sendConversation, fetchShard, fetchAvailableModels } from '@/api/client';
+import { sendConversation, fetchAvailableModels, fetchKbCollections } from '@/api/client';
 import { useStore } from '@/store';
 import ShardFlowLogo from '@/components/common/ShardFlowLogo';
+import KbSearchResults from '@/components/knowledge/KbSearchResults';
 import type { ChatMessage, StreamingPhase } from '@/types';
 
 const { TextArea } = Input;
@@ -30,6 +32,10 @@ const stripTagMarkers = (text: string): string => {
   // 不完整标签（行尾缺少 > 的标签）
   result = result.replace(/<\/?THINKING[^>]*$/gi, '');
   result = result.replace(/<\/?ANSWER[^>]*$/gi, '');
+  // 安全网：移除泄露的工具调用 JSON 块（```json {"action_plan": ...} ```）
+  result = result.replace(/```json\s*\{\s*"action_plan"\s*:\s*\{[\s\S]*?\}\s*\}\s*```/gi, '');
+  // 安全网：移除无代码围栏包裹的裸 action_plan JSON
+  result = result.replace(/\{\s*"action_plan"\s*:\s*\{[\s\S]*?\}\s*\}/gi, '');
   return result;
 };
 
@@ -41,15 +47,11 @@ interface Props {
 /** Phase labels shown in the streaming progress indicator */
 const PHASE_LABELS: Record<string, string> = {
   intent: '识别意图',
-  profile_applied: '加载偏好',
   think: '思考中',
   action: '调用工具',
   observe: '观察结果',
   progress: '推理进度',
   answer: '生成回答',
-  shard_trigger: '上下文分片',
-  shard_result: '状态包提取',
-  strategy: '策略检索',
   done: '完成',
 };
 
@@ -59,9 +61,13 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     streamingPhase, setStreamingPhase,
     abortController, setAbortController,
     activeTaskId, activeSessionId, updateMessage,
+    kbSearchResults, clearKbSearchResults,
+    kbActiveMount, setKbActiveMount, kbCollections, setKbCollections,
   } = useStore();
   const [input, setInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('');
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('shardflow_selected_model') || '';
+  });
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [systemModels, setSystemModels] = useState<Array<{ key: string; label: string; provider?: string; model?: string; capabilities?: string; context_window?: number; type?: string; is_verified?: boolean }>>([]);
@@ -82,10 +88,25 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
       .then((models) => {
         if (models?.length) {
           setSystemModels(models);
+          // 如果已选的模型不在可用列表中（如被删除或数据库迁移后），清除选择
+          if (selectedModel && !models.find(m => m.key === selectedModel)) {
+            setSelectedModel('');
+          }
           if (!selectedModel) {
-            setSelectedModel(models[0].key);
+            const firstModel = models[0].key;
+            setSelectedModel(firstModel);
+            localStorage.setItem('shardflow_selected_model', firstModel);
           }
         }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchKbCollections()
+      .then((cols) => {
+        const list = Array.isArray(cols) ? cols : [];
+        setKbCollections(list);
       })
       .catch(() => {});
   }, []);
@@ -168,31 +189,30 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
           setCurrentPhaseLabel(phaseLabel);
         }
 
-        if (event.type === 'profile_applied') { message.info(`已应用偏好：${data.preferred_depth || '默认'}`); return; }
-        if (event.type === 'shard_trigger') { return; }
-
-        if (event.type === 'shard_result') {
-          const partialShard = {
-            task_id: data.shard_id as string || '',
-            knowledge_state: { summary: data.summary as string || '' },
-          } as unknown as import('@/types').ContextShard;
-          useStore.getState().setShard(partialShard);
-        }
-        if (event.type === 'shard_resume') {
-          useStore.getState().setShard(data as unknown as import('@/types').ContextShard);
-        }
-        if (event.type === 'strategy') {
-          const s = useStore.getState().strategies;
-          useStore.getState().setStrategies([...s, {
-            strategy_id: (data.strategy_id as string) || '',
-            task_type: (data.decision as string) || '',
-            query_pattern: (data.decision as string) || '',
-            similarity: data.similarity as number,
-          } as unknown as import('@/types').StrategyRecord]);
+        if (event.type === 'intent') {
           return;
         }
 
-        if (event.type === 'intent') {
+        // kb_search events: store knowledge base search results for display
+        if (event.type === 'kb_search') {
+          const results = (data.results as Array<Record<string, unknown>>) || [];
+          if (results.length > 0 && assistantCreated) {
+            updateMessage(assistantMsgId, {
+              kbSearchResults: results.map((r) => ({
+                title: (r.title as string) || '',
+                snippet: (r.snippet as string) || '',
+                relevance_score: (r.relevance_score as number) || 0,
+                source: 'knowledge_base' as const,
+                url: (r.url as string) || '',
+                metadata: {
+                  document_id: ((r.metadata as Record<string, unknown>)?.document_id as string) || '',
+                  collection_name: ((r.metadata as Record<string, unknown>)?.collection_name as string) || '',
+                  chunk_index: ((r.metadata as Record<string, unknown>)?.chunk_index as number) || 0,
+                  node_id: ((r.metadata as Record<string, unknown>)?.node_id as string) || '',
+                },
+              })),
+            });
+          }
           return;
         }
 
@@ -257,11 +277,6 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             pendingAnswer = '';
           }
 
-          if (data.shard_id) {
-            fetchShard(data.shard_id as string).then((shard) => {
-              useStore.getState().setShard(shard as import('@/types').ContextShard);
-            }).catch(() => {});
-          }
           if (hasStreamingContent) {
             updateMessage(assistantMsgId, {
               content: assistantContent,
@@ -333,9 +348,8 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
         // 成功时不展示原始结果，由最终答案整合呈现
         return '';
       }
-      case 'strategy': return `**📋 策略**: ${data.decision}${data.similarity ? ` (相似度 ${Number(data.similarity).toFixed(2)})` : ''}\n\n`;
       case 'done': case 'answer': return '';
-      case 'intent': case 'think': case 'progress': case 'shard_trigger': case 'shard_result': case 'shard_resume': case 'heartbeat': return '';
+      case 'intent': case 'think': case 'progress': case 'heartbeat': return '';
       default: return '';
     }
   };
@@ -545,6 +559,10 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{stripTagMarkers(msg.content)}</ReactMarkdown>
                         </div>
                       ) : null}
+                      {/* Knowledge base search results for this message */}
+                      {msg.kbSearchResults && msg.kbSearchResults.length > 0 && (
+                        <KbSearchResults results={msg.kbSearchResults} />
+                      )}
                       {isStreaming && msg.id === streamingMsgIdRef.current && msg.streamingPhase === 'answering' && (
                         <span className="streaming-cursor" style={{
                           display: 'inline-block',
@@ -742,6 +760,55 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                   联网搜索
                 </button>
               </Tooltip>
+              <Tooltip title="开启后，AI 将从知识库中检索相关文档辅助回答" placement="right">
+                <button
+                  className="cn-sans"
+                  onClick={() => {
+                    if (!kbActiveMount.mounted) {
+                      const activeCols = (Array.isArray(kbCollections) ? kbCollections : []).filter((c) => c.status === 'ACTIVE');
+                      if (activeCols.length > 0) {
+                        setKbActiveMount({ mounted: true, collectionId: activeCols[0].id, collectionName: activeCols[0].name });
+                      } else {
+                        setKbActiveMount({ mounted: true });
+                      }
+                    } else {
+                      setKbActiveMount({ mounted: false });
+                    }
+                    setPlusMenuOpen(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: kbActiveMount.mounted ? 'rgba(201,168,124,0.1)' : 'transparent',
+                    color: kbActiveMount.mounted ? 'var(--accent-warm)' : 'var(--ink-soft)',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    letterSpacing: '0.04em',
+                    transition: 'all 0.2s ease',
+                    width: '100%',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!kbActiveMount.mounted) {
+                      (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.6)';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--ink)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!kbActiveMount.mounted) {
+                      (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      (e.currentTarget as HTMLElement).style.color = 'var(--ink-soft)';
+                    }
+                  }}
+                >
+                  <BookOutlined style={{ fontSize: 16, color: kbActiveMount.mounted ? 'var(--accent-warm)' : 'var(--ink-faint)' }} />
+                  知识库
+                </button>
+              </Tooltip>
             </div>
           )}
 
@@ -807,31 +874,6 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
               />
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                {webSearchEnabled && (
-                  <Tooltip title="联网搜索已开启，点击关闭" placement="top">
-                    <button
-                      onClick={() => setWebSearchEnabled(false)}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 10,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        fontSize: 16,
-                        border: '1px solid var(--accent)',
-                        background: 'rgba(201,168,124,0.1)',
-                        color: 'var(--accent-warm)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                      }}
-                    >
-                      <GlobalOutlined />
-                    </button>
-                  </Tooltip>
-                )}
-
                 {isAuthenticated && (
                   <Dropdown
                     menu={{
@@ -845,7 +887,10 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                             )}
                           </span>
                         ),
-                        onClick: () => setSelectedModel(m.key),
+                        onClick: () => {
+                          setSelectedModel(m.key);
+                          localStorage.setItem('shardflow_selected_model', m.key);
+                        },
                       })),
                       selectedKeys: [selectedModel],
                     }}

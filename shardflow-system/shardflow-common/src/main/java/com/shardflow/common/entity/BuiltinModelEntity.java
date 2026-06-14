@@ -10,7 +10,7 @@ import java.util.List;
 
 @Data
 @NoArgsConstructor
-@TableName(value = "sf_model_builtin", autoResultMap = true)
+@TableName(value = "shardflow_model_builtin", autoResultMap = true)
 public class BuiltinModelEntity {
 
     @TableId(type = IdType.AUTO)

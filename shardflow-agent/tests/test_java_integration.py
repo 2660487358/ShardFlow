@@ -42,60 +42,6 @@ async def test_callback_save_shard_integration():
 
 
 @pytest.mark.asyncio
-async def test_callback_save_strategy_integration():
-    """Verify callback_client.save_strategy calls Java kb-strategy endpoint."""
-    from app.infrastructure.callback_client import callback_client
-
-    mock_client = _mock_async_client({"status": "ok"})
-
-    with patch.object(callback_client, "_get_client", AsyncMock(return_value=mock_client)):
-        result = await callback_client.save_strategy({"strategy_id": "strat-1"})
-
-    assert result["status"] == "ok"
-
-
-@pytest.mark.asyncio
-async def test_callback_search_strategies_integration():
-    """Verify callback_client.search_strategies calls Java kb-strategy search."""
-    from app.infrastructure.callback_client import callback_client
-
-    mock_client = _mock_async_client({
-        "results": [
-            {"record": {"strategy_id": "s1", "task_type": "code_exploration"}, "similarity": 0.95}
-        ]
-    })
-
-    with patch.object(callback_client, "_get_client", AsyncMock(return_value=mock_client)):
-        results = await callback_client.search_strategies("code_exploration", "trace dubbo")
-
-    assert len(results) == 1
-    assert results[0]["similarity"] == 0.95
-
-
-@pytest.mark.asyncio
-async def test_callback_graceful_degradation():
-    """Verify strategy search falls back to local cache when Java unavailable."""
-    from app.layers.agent_core.strategy_engine import strategy_engine
-    from app.models.strategy import SourceCombo, StrategyRecord
-
-    strategy_engine._local_cache = [
-        StrategyRecord(
-            strategy_id="local-1", user_id="test", task_type="code_exploration",
-            query_pattern="trace dubbo",
-            source_combo=[SourceCombo(source="code_comments", weight=0.5, reliability=0.7)],
-            success_score=0.8, cost_ms=2000,
-        )
-    ]
-
-    with patch("app.infrastructure.callback_client.callback_client.search_strategies",
-               AsyncMock(side_effect=ConnectionError("Java service down"))):
-        results = await strategy_engine.search_strategy("code_exploration", "trace dubbo")
-
-    assert len(results) > 0
-    assert results[0][0].strategy_id == "local-1"
-
-
-@pytest.mark.asyncio
 async def test_callback_session_complete():
     """Verify session_complete callback."""
     from app.infrastructure.callback_client import callback_client

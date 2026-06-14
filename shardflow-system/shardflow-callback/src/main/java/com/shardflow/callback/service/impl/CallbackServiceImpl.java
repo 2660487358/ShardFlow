@@ -3,12 +3,19 @@ package com.shardflow.callback.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.shardflow.callback.repository.AuditLogRepository;
-import com.shardflow.shard.repository.ShardRepository;
-import com.shardflow.strategy.repository.StrategyRepository;
+import com.shardflow.memory.repository.AuditLogRepository;
+import com.shardflow.shard.service.SessionStateSummaryService;
+import com.shardflow.profile.service.UserProfileService;
+import com.shardflow.memory.service.MemoryChunkService;
+import com.shardflow.common.dto.session.SessionSummaryCreateRequest;
+import com.shardflow.common.dto.session.SessionSummaryCreateResponse;
+import com.shardflow.common.dto.profile.UserProfileUpdateRequest;
+import com.shardflow.common.dto.profile.UserProfileUpdateResponse;
+import com.shardflow.common.dto.memory.MemoryCreateResponse;
+import com.shardflow.common.dto.strategy.StrategyCreateResponse;
+import com.shardflow.strategy.service.StrategyRecordService;
 import com.shardflow.task.repository.TaskRepository;
 import com.shardflow.callback.service.CallbackService;
-import com.shardflow.common.dto.ShardSaveRequest;
 import com.shardflow.common.entity.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,8 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -27,52 +34,12 @@ public class CallbackServiceImpl implements CallbackService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
-    private final ShardRepository shardRepository;
-    private final StrategyRepository strategyRepository;
     private final TaskRepository taskRepository;
     private final AuditLogRepository auditLogRepository;
-
-    @Override
-    @Transactional
-    public Map<String, Object> saveShard(ShardSaveRequest request) {
-        ShardEntity shard = shardRepository.selectOne(
-            new LambdaQueryWrapper<ShardEntity>()
-                .eq(ShardEntity::getUserId, request.userId())
-                .eq(ShardEntity::getTaskId, request.taskId())
-        );
-        if (shard == null) shard = new ShardEntity();
-
-        shard.setUserId(request.userId());
-        shard.setTaskId(request.taskId());
-        shard.setSessionSeq(request.sessionSeq());
-        if (request.confirmed() != null) shard.setConfirmed(toJson(request.confirmed()));
-        if (request.excluded() != null) shard.setExcluded(toJson(request.excluded()));
-        if (request.pending() != null) shard.setPending(toJson(request.pending()));
-        if (request.sourcePreference() != null) shard.setSourcePreference(toJson(request.sourcePreference()));
-        if (request.keyDecisions() != null) shard.setKeyDecisions(toJson(request.keyDecisions()));
-
-        shardRepository.insertOrUpdate(shard);
-
-        String cacheKey = "shardflow:" + request.userId() + ":shard:" + request.taskId() + ":latest";
-        redisTemplate.opsForValue().set(cacheKey, String.valueOf(shard.getId()), Duration.ofHours(24));
-
-        log.info("Shard persisted: userId={}, taskId={}, shardId={}", request.userId(), request.taskId(), shard.getId());
-        return Map.of("success", true, "shard_id", shard.getId());
-    }
-
-    @Override
-    @Transactional
-    public Map<String, Object> saveStrategy(Map<String, Object> body) {
-        StrategyEntity strategy = new StrategyEntity();
-        strategy.setStrategyCode((String) body.getOrDefault("strategy_id", UUID.randomUUID().toString()));
-        strategy.setUserId((String) body.get("user_id"));
-        strategy.setTaskType((String) body.getOrDefault("task_type", "general"));
-        strategy.setSourceCombo(toJson(body.get("source_combo")));
-        strategyRepository.insert(strategy);
-
-        log.info("Strategy persisted: {}", strategy.getStrategyCode());
-        return Map.of("success", true, "strategy_id", strategy.getStrategyCode());
-    }
+    private final SessionStateSummaryService summaryService;
+    private final UserProfileService profileService;
+    private final MemoryChunkService memoryService;
+    private final StrategyRecordService strategyService;
 
     @Override
     @Transactional
@@ -109,6 +76,173 @@ public class CallbackServiceImpl implements CallbackService {
         String progressKey = "shardflow:" + body.get("user_id") + ":progress:" + body.get("task_id");
         redisTemplate.opsForValue().set(progressKey, String.valueOf(body.get("progress")), Duration.ofHours(1));
         return Map.of("success", true);
+    }
+
+    /**
+     * POST /api/v1/callback/shards — Save session state summary from Python推理层.
+     * Delegates to SessionStateSummaryService for persistence + Redis sync.
+     */
+    @Override
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> saveShard(Map<String, Object> body) {
+        SessionSummaryCreateRequest request = new SessionSummaryCreateRequest();
+        request.setUserId((String) body.get("user_id"));
+        request.setTaskId((String) body.get("task_id"));
+        request.setTaskType((String) body.get("task_type"));
+        request.setTaskGoal((String) body.get("task_goal"));
+
+        Object seqObj = body.get("session_seq");
+        if (seqObj instanceof Number) {
+            request.setSessionSeq(((Number) seqObj).intValue());
+        }
+
+        // Map knowledge_state
+        Object ksObj = body.get("knowledge_state");
+        if (ksObj instanceof Map) {
+            Map<String, Object> ksMap = (Map<String, Object>) ksObj;
+            SessionSummaryCreateRequest.KnowledgeState ks = new SessionSummaryCreateRequest.KnowledgeState();
+            ks.setConfirmed((List<String>) ksMap.getOrDefault("confirmed", List.of()));
+            ks.setExcluded((List<String>) ksMap.getOrDefault("excluded", List.of()));
+            ks.setPending((List<String>) ksMap.getOrDefault("pending", List.of()));
+            request.setKnowledgeState(ks);
+        }
+
+        // Map user_context
+        Object ucObj = body.get("user_context");
+        if (ucObj instanceof Map) {
+            Map<String, Object> ucMap = (Map<String, Object>) ucObj;
+            SessionSummaryCreateRequest.UserContext uc = new SessionSummaryCreateRequest.UserContext();
+            uc.setExpertiseLevel((String) ucMap.getOrDefault("expertise_level", ""));
+            uc.setPreferredDepth((String) ucMap.getOrDefault("preferred_depth", ""));
+            uc.setCommunicationStyle((String) ucMap.getOrDefault("communication_style", ""));
+            request.setUserContext(uc);
+        }
+
+        // Map execution_state
+        Object esObj = body.get("execution_state");
+        if (esObj instanceof Map) {
+            Map<String, Object> esMap = (Map<String, Object>) esObj;
+            SessionSummaryCreateRequest.ExecutionState es = new SessionSummaryCreateRequest.ExecutionState();
+            Object stepsObj = esMap.get("completed_steps");
+            if (stepsObj instanceof Number) es.setCompletedSteps(((Number) stepsObj).intValue());
+            es.setCurrentStep((String) esMap.getOrDefault("current_step", ""));
+            es.setToolsUsed((List<String>) esMap.getOrDefault("tools_used", List.of()));
+            es.setEstimatedRemaining((String) esMap.getOrDefault("estimated_remaining", ""));
+            request.setExecutionState(es);
+        }
+
+        // Map source_preference
+        Object spObj = body.get("source_preference");
+        if (spObj instanceof Map) {
+            Map<String, Double> sp = (Map<String, Double>) spObj;
+            request.setSourcePreference(sp);
+        }
+
+        SessionSummaryCreateResponse response = summaryService.saveFromCallback(request);
+        log.info("Shard saved via callback: summaryId={}, status={}", response.getSummaryId(), response.getStatus());
+
+        return Map.of(
+            "success", true,
+            "summary_id", response.getSummaryId(),
+            "status", response.getStatus()
+        );
+    }
+
+    /**
+     * POST /api/v1/callback/profile — Save user profile from Python推理层.
+     * Delegates to UserProfileService for persistence + Redis sync.
+     */
+    @Override
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> saveProfile(Map<String, Object> body) {
+        String userId = (String) body.get("user_id");
+        if (userId == null || userId.isBlank()) {
+            return Map.of("success", false, "error", "user_id is required");
+        }
+
+        UserProfileUpdateRequest request = new UserProfileUpdateRequest();
+
+        // Map preference data
+        Object prefObj = body.get("preference");
+        if (prefObj instanceof Map) {
+            Map<String, Object> prefMap = (Map<String, Object>) prefObj;
+            UserProfileUpdateRequest.ProfileData pref = new UserProfileUpdateRequest.ProfileData();
+            if (prefMap.get("interests") instanceof List) {
+                pref.setInterests((List<String>) prefMap.get("interests"));
+            }
+            pref.setExpertise((String) prefMap.getOrDefault("expertise", ""));
+            pref.setCommunicationStyle((String) prefMap.getOrDefault("communication_style", ""));
+            if (prefMap.get("preferred_sources") instanceof Map) {
+                pref.setPreferredSources((Map<String, Double>) prefMap.get("preferred_sources"));
+            }
+            pref.setTimezone((String) prefMap.getOrDefault("timezone", ""));
+            request.setPreference(pref);
+        }
+
+        // Map interaction_habits data
+        Object habitsObj = body.get("interaction_habits");
+        if (habitsObj instanceof Map) {
+            Map<String, Object> habitsMap = (Map<String, Object>) habitsObj;
+            UserProfileUpdateRequest.InteractionHabitsData habits = new UserProfileUpdateRequest.InteractionHabitsData();
+            if (habitsMap.get("common_tasks") instanceof List) {
+                habits.setCommonTasks((List<String>) habitsMap.get("common_tasks"));
+            }
+            habits.setPreferredDepth((String) habitsMap.getOrDefault("preferred_depth", ""));
+            habits.setFeedbackPatterns((String) habitsMap.getOrDefault("feedback_patterns", ""));
+            request.setInteractionHabits(habits);
+        }
+
+        UserProfileUpdateResponse response = profileService.saveFromCallback(userId, request);
+        log.info("Profile saved via callback: userId={}, status={}, version={}",
+                userId, response.getStatus(), response.getProfileVersion());
+
+        return Map.of(
+            "success", true,
+            "profile_id", response.getProfileId() != null ? response.getProfileId() : "",
+            "status", response.getStatus(),
+            "profile_version", response.getProfileVersion() != null ? response.getProfileVersion() : 1
+        );
+    }
+
+    /**
+     * POST /api/v1/callback/memory — Save memory chunk from Python推理层.
+     * Delegates to MemoryChunkService for persistence + Redis sync.
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> saveMemory(Map<String, Object> body) {
+        MemoryCreateResponse response = memoryService.saveFromCallback(body);
+        log.info("Memory saved via callback: memoryId={}, status={}, conflict={}",
+                response.getMemoryId(), response.getStatus(), response.getConflictDetected());
+
+        return Map.of(
+            "success", true,
+            "memory_id", response.getMemoryId(),
+            "status", response.getStatus(),
+            "conflict_detected", response.getConflictDetected() != null ? response.getConflictDetected() : false
+        );
+    }
+
+    /**
+     * POST /api/v1/callback/strategies — Save strategy record from Python推理层.
+     * Delegates to StrategyRecordService for persistence.
+     * Per P6.2.3: Callback interface for strategy persistence.
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> saveStrategyRecord(Map<String, Object> body) {
+        StrategyCreateResponse response = strategyService.saveFromCallback(body);
+        log.info("Strategy saved via callback: recordId={}, status={}, score={}",
+                response.getRecordId(), response.getStatus(), response.getSuccessScore());
+
+        return Map.of(
+            "success", true,
+            "record_id", response.getRecordId() != null ? response.getRecordId() : "",
+            "status", response.getStatus(),
+            "success_score", response.getSuccessScore() != null ? response.getSuccessScore() : 0.0
+        );
     }
 
     private String toJson(Object obj) {

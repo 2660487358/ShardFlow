@@ -13,6 +13,21 @@ services:
       retries: 5
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "${SF_INFRA_RABBITMQ_PORT:-5672}:5672"
+      - "${SF_INFRA_RABBITMQ_MGMT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${SF_INFRA_RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${SF_INFRA_RABBITMQ_PASS:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
   java:
     build:
       context: ../shardflow-system
@@ -20,9 +35,9 @@ services:
     ports:
       - "${SF_SYSTEM_SERVER_PORT:-8200}:8200"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${SF_INFRA_MYSQL_DATABASE:-shardflow}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-      SPRING_DATASOURCE_USERNAME: ${SF_INFRA_MYSQL_USER:-shardflow}
-      SPRING_DATASOURCE_PASSWORD: ${SF_INFRA_MYSQL_PASSWORD:-shardflow}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${SF_INFRA_POSTGRES_DATABASE:-shardflow}?currentSchema=public&stringtype=unspecified
+      SPRING_DATASOURCE_USERNAME: ${SF_INFRA_POSTGRES_USER:-shardflow}
+      SPRING_DATASOURCE_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
       SPRING_DATA_REDIS_HOST: redis
       SF_JAVA_API_KEY: ${SF_JAVA_API_KEY:-}
       SA_TOKEN_JWT_SECRET_KEY: ${SA_TOKEN_JWT_SECRET_KEY:-ShardFlow2026DefaultJwtSecretKeyDoNotUseInProd}
@@ -31,8 +46,17 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      SF_RABBITMQ_HOST: rabbitmq
+      SF_RABBITMQ_PORT: 5672
+      SF_RABBITMQ_USERNAME: ${SF_INFRA_RABBITMQ_USER:-guest}
+      SF_RABBITMQ_PASSWORD: ${SF_INFRA_RABBITMQ_PASS:-guest}
+      SF_GRPC_PYTHON_HOST: python
+      SF_GRPC_PYTHON_PORT: 50051
+      SF_MINIO_ENDPOINT: http://minio:9000
+      SF_MILVUS_HOST: milvus
+      SF_MILVUS_PORT: 19530
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -58,6 +82,11 @@ services:
       SF_AGENT_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SF_AGENT_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SF_AGENT_AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      SF_AGENT_RABBITMQ_HOST: rabbitmq
+      SF_AGENT_RABBITMQ_PORT: 5672
+      SF_AGENT_RABBITMQ_USER: ${SF_INFRA_RABBITMQ_USER:-guest}
+      SF_AGENT_RABBITMQ_PASSWORD: ${SF_INFRA_RABBITMQ_PASS:-guest}
+      SF_AGENT_MINIO_ENDPOINT: minio:9000
     depends_on:
       java:
         condition: service_healthy
@@ -117,6 +146,9 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    ports:
+      - "${SF_INFRA_MINIO_PORT:-9000}:9000"
+      - "${SF_INFRA_MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       MINIO_ROOT_USER: ${SF_INFRA_MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${SF_INFRA_MINIO_SECRET_KEY:-minioadmin}
@@ -128,6 +160,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    ports:
+      - "${SF_INFRA_POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${SF_INFRA_POSTGRES_DATABASE:-shardflow}
+      POSTGRES_USER: ${SF_INFRA_POSTGRES_USER:-shardflow}
+      POSTGRES_PASSWORD: ${SF_INFRA_POSTGRES_PASSWORD:-shardflow}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SF_INFRA_POSTGRES_USER:-shardflow} -d ${SF_INFRA_POSTGRES_DATABASE:-shardflow}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   mysql:
@@ -148,8 +197,36 @@ services:
       retries: 10
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "${SF_INFRA_PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    depends_on:
+      - java
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "${SF_INFRA_GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${SF_INFRA_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${SF_INFRA_GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   milvus-data:
   etcd-data:
   minio-data:
   mysql-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

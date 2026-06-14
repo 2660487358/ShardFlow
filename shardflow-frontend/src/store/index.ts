@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, Task, ContextShard, StrategyRecord, UserProfile, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult, StreamingPhase } from '@/types';
+import type { ChatMessage, Task, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult, StreamingPhase } from '@/types';
 
 // Lazy API imports to avoid circular deps (client.ts imports useStore)
 const api = {
@@ -51,25 +51,11 @@ interface AppState {
   setTasks: (tasks: Task[]) => void;
   setActiveTask: (taskId: string, sessionId?: string) => void;
 
-  // Shard
-  currentShard: ContextShard | null;
-  setShard: (shard: ContextShard | null) => void;
-
-  // Strategies
-  strategies: StrategyRecord[];
-  setStrategies: (s: StrategyRecord[]) => void;
-
   // Auth
   token: string | null;
   userId: string;
   setAuth: (token: string, userId: string, refreshToken?: string, expiresIn?: number) => void;
   logout: () => void;
-
-  // Profile (Phase 3)
-  userProfile: UserProfile | null;
-  profileLoading: boolean;
-  setProfile: (p: UserProfile | null) => void;
-  setProfileLoading: (v: boolean) => void;
 
   // MCP (Phase 3)
   mcpTools: McpTool[];
@@ -143,14 +129,6 @@ export const useStore = create<AppState>((set) => ({
   setTasks: (tasks) => set({ tasks }),
   setActiveTask: (taskId, sessionId) => set({ activeTaskId: taskId, activeSessionId: sessionId || null }),
 
-  // Shard
-  currentShard: null,
-  setShard: (shard) => set({ currentShard: shard }),
-
-  // Strategies
-  strategies: [],
-  setStrategies: (s) => set({ strategies: s }),
-
   // Auth — validate stored token looks like JWT before accepting it
   token: (() => {
     const t = localStorage.getItem('shardflow_token') || '';
@@ -186,7 +164,11 @@ export const useStore = create<AppState>((set) => ({
     localStorage.removeItem('shardflow_refresh_token');
     localStorage.removeItem('shardflow_user_id');
     localStorage.removeItem('shardflow_token_expires_at');
-    set({ token: null, userId: '' });
+    localStorage.removeItem('shardflow_custom_models');
+    localStorage.removeItem('shardflow_agents');
+    localStorage.removeItem('shardflow_active_agent');
+    localStorage.removeItem('shardflow_selected_model');
+    set({ token: null, userId: '', customModels: [], agentConfigs: [], activeAgentId: null });
     // 通知后端注销双 token
     if (token) {
       import('@/api/client').then(({ default: api }) => {
@@ -194,12 +176,6 @@ export const useStore = create<AppState>((set) => ({
       });
     }
   },
-
-  // Profile
-  userProfile: null,
-  profileLoading: false,
-  setProfile: (p) => set({ userProfile: p }),
-  setProfileLoading: (v) => set({ profileLoading: v }),
 
   // MCP
   mcpTools: [],
@@ -339,8 +315,15 @@ export const useStore = create<AppState>((set) => ({
       if (Array.isArray(data)) {
         set({ customModels: data as CustomModel[] });
         localStorage.setItem('shardflow_custom_models', JSON.stringify(data));
+      } else {
+        // 服务端返回非数组（如空对象），清除缓存
+        set({ customModels: [] });
+        localStorage.removeItem('shardflow_custom_models');
       }
-    } catch { /* API unavailable, keep localStorage data */ }
+    } catch {
+      // API 不可用时保留 localStorage 数据作为降级
+      // 但如果是 401，handleAuthExpired 已经清除了缓存
+    }
   },
 
   // Agent Configs

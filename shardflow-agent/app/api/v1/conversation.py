@@ -21,6 +21,7 @@ class ConversationRequest(BaseModel):
     user_id: str = ""
     model: str = ""  # model_id for routing
     kb_collection_name: str = ""
+    kb_id: str = ""  # Knowledge base collection ID for filtering within Milvus collection
     stream: bool = True
     context: dict[str, Any] | None = None
 
@@ -62,6 +63,8 @@ async def handle_conversation(
     state["intent"] = intent
     state["entities"] = entities
     state["model_id"] = body.model or "gpt-4o"
+    state["kb_collection_name"] = body.kb_collection_name
+    state["kb_id"] = body.kb_id
 
     if body.stream:
         async def event_generator() -> Any:

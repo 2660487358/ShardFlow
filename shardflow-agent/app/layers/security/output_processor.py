@@ -94,6 +94,8 @@ TOOL_PROTOCOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r'"tool_call"'),
     re.compile(r'"function_call"'),
     re.compile(r'\bweb_search\b'),
+    # Catch the full action_plan object that may leak through streaming
+    re.compile(r'\{\s*"action_plan"\s*:\s*\{'),
 ]
 
 # P0 兜底话术

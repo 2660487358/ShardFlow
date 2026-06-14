@@ -102,9 +102,11 @@ def connect_milvus() -> bool:
             alias="default",
             host=settings.milvus_host,
             port=settings.milvus_port,
+            db_name=settings.milvus_db_name,
         )
         _milvus_connected = True
-        logger.info("Connected to Milvus at %s:%d", settings.milvus_host, settings.milvus_port)
+        logger.info("Connected to Milvus at %s:%d db=%s",
+                     settings.milvus_host, settings.milvus_port, settings.milvus_db_name)
         return True
     except Exception as e:
         logger.error("Failed to connect to Milvus: %s", e)
@@ -290,6 +292,7 @@ async def process_document(
     collection_name: str,
     document_id: str,
     user_id: str,
+    kb_id: str = "",
     progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """Full document processing pipeline: parse → chunk → embed → store.
@@ -297,9 +300,10 @@ async def process_document(
     Args:
         file_path: Absolute path to uploaded document.
         file_type: Lowercase extension (pdf, docx, md, txt, py, ...).
-        collection_name: Milvus collection name.
-        document_id: MySQL kb_document.id for tracking.
+        collection_name: Milvus collection name (e.g. kb_chunks_user123).
+        document_id: PostgreSQL kb_document.id for tracking.
         user_id: User ID for metadata tagging.
+        kb_id: Knowledge base collection ID (PostgreSQL kb_collection.id) for filtering.
         progress_callback: Optional callback(status, metadata) for status updates.
 
     Returns:
@@ -348,17 +352,20 @@ async def process_document(
         import asyncio
         nodes = await asyncio.to_thread(pipeline.run, documents=docs)
 
-        # Step 6: Tag nodes with metadata
+        # Step 6: Tag nodes with metadata (DR-3 compatible)
         chunk_count = 0
+        now_ts = int(time.time())
         for i, node in enumerate(nodes):
             if node.metadata is None:
                 node.metadata = {}
             node.metadata["document_id"] = document_id
-            node.metadata["collection_id"] = collection_name
+            node.metadata["collection_id"] = kb_id or collection_name  # Use actual kb_id for filtering
             node.metadata["user_id"] = user_id
+            node.metadata["tenant_id"] = user_id  # Same as user_id for single-tenant mode
             node.metadata["chunk_index"] = i
-            filename_val = os.path.basename(file_path)
-            node.metadata["filename"] = filename_val
+            node.metadata["filename"] = os.path.basename(file_path)
+            node.metadata["status"] = "ACTIVE"
+            node.metadata["create_time"] = now_ts
             chunk_count += 1
 
         elapsed = (time.monotonic() - start_time) * 1000

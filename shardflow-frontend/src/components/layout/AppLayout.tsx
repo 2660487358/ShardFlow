@@ -5,7 +5,7 @@ import {
   MessageOutlined, HistoryOutlined, UserOutlined,
   LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
   ThunderboltOutlined, ApiOutlined,
-  PlusOutlined, BookOutlined, ApartmentOutlined,
+  PlusOutlined, BookOutlined,
   SettingOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import { useStore } from '@/store';
@@ -26,7 +26,6 @@ const featureNavItems = [
   { key: 'skill', icon: <ThunderboltOutlined />, label: 'Skills', path: '/skills' },
   { key: 'mcp', icon: <ApiOutlined />, label: 'MCP', path: '/mcp-tools' },
   { key: 'knowledge', icon: <BookOutlined />, label: '知识库', path: '/kb' },
-  { key: 'workspace', icon: <ApartmentOutlined />, label: '记忆图谱', path: '/workspace' },
   { key: 'models', icon: <SettingOutlined />, label: '模型', path: '/models' },
   { key: 'agents', icon: <RobotOutlined />, label: 'Agent', path: '/agents' },
 ];
@@ -70,7 +69,6 @@ export default function AppLayout() {
   };
 
   const userMenuItems = [
-    { key: 'profile', icon: <UserOutlined />, label: '我的画像', onClick: () => navigate('/profile') },
     { type: 'divider' as const },
     { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: handleLogout },
   ];

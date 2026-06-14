@@ -11,7 +11,7 @@ export interface ConversationRequest {
 export interface SSEEvent {
   type: 'intent' | 'think' | 'answer' | 'action' | 'observe' | 'progress'
     | 'shard_trigger' | 'shard_result' | 'strategy'
-    | 'profile_applied' | 'shard_resume' | 'done' | 'error'
+    | 'profile_applied' | 'shard_resume' | 'kb_search' | 'done' | 'error'
     | 'heartbeat';
   data: Record<string, unknown>;
 }
@@ -25,6 +25,7 @@ export interface ChatMessage {
   eventType?: SSEEvent['type'];
   thinkingContent?: string;  // Raw think tokens for collapsible display
   streamingPhase?: StreamingPhase;  // Current streaming phase
+  kbSearchResults?: KbSearchResult[];  // Knowledge base search results for this message
   timestamp: number;
 }
 
@@ -153,11 +154,14 @@ export interface KbCollection {
 
 export interface KbDocument {
   id: string;
+  document_code?: string;
   collection_id: string;
   user_id: string;
   filename: string;
   file_type: string;
   file_size: number;
+  minio_url?: string;
+  parse_strategy?: string;
   status: 'PENDING' | 'PARSING' | 'EMBEDDING' | 'READY' | 'ERROR';
   error_msg?: string;
   created_at: string;
@@ -181,4 +185,151 @@ export interface KbMountState {
   mounted: boolean;
   collectionId: string | null;
   collectionName: string;
+}
+
+// ── MCP Tool Types ──
+
+export interface McpTool {
+  toolId: string;
+  toolName: string;
+  toolType: 'BUILTIN' | 'MCP';
+  description: string;
+  category: string;
+  tags: string[];
+  mcpServerUrl: string;
+  transport: string;
+  healthCheckUrl: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  permissions: string[];
+  riskLevel: string;
+  version: string;
+  timeoutSeconds: number;
+  retryCount: number;
+  authConfigType: string;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  healthStatus: 'HEALTHY' | 'UNHEALTHY' | 'UNKNOWN';
+  lastHealthCheckAt: string;
+  ownerTeam: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpToolSummary {
+  toolId: string;
+  toolName: string;
+  toolType: 'BUILTIN' | 'MCP';
+  description: string;
+  category: string;
+  tags: string[];
+  version: string;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  healthStatus: 'HEALTHY' | 'UNHEALTHY' | 'UNKNOWN';
+  permissions: string[];
+  mcpServerUrl: string;
+  transport: string;
+  riskLevel: string;
+  ownerTeam: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpToolListResult {
+  tools: McpToolSummary[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface McpToolRegisterRequest {
+  toolName: string;
+  description: string;
+  category?: string;
+  tags?: string[];
+  mcpServerUrl?: string;
+  transport?: string;
+  healthCheckUrl?: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  permissions?: string[];
+  riskLevel?: string;
+  version: string;
+  timeoutSeconds?: number;
+  retryCount?: number;
+  authConfig?: {
+    type: string;
+    tokenKey?: string;
+    keyName?: string;
+    keyValueEnv?: string;
+    clientIdEnv?: string;
+    clientSecretEnv?: string;
+    tokenUrl?: string;
+  };
+  ownerTeam?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface McpHealthCheckResult {
+  toolId: string;
+  toolName: string;
+  healthStatus: 'HEALTHY' | 'UNHEALTHY' | 'UNKNOWN';
+  lastHealthCheckAt: string;
+  consecutiveFailures: number;
+  consecutiveSuccesses: number;
+  message: string;
+  latencyMs: number;
+}
+
+export interface McpVersionEntry {
+  id: number;
+  version: string;
+  description: string;
+  changelog: string;
+  status: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface McpVersionResult {
+  toolId: string;
+  toolName: string;
+  currentVersion: string;
+  versions: McpVersionEntry[];
+}
+
+export interface McpMetadataAuditEntry {
+  id: number;
+  userId: string;
+  operator: string;
+  toolId: string;
+  toolName: string;
+  operationType: string;
+  changeSummary: string;
+  operationAt: string;
+}
+
+export interface McpCallAuditEntry {
+  id: number;
+  traceId: string;
+  spanId: string;
+  userId: string;
+  sessionId: string;
+  toolId: string;
+  toolName: string;
+  toolVersion: string;
+  inputParams: string;
+  outputPreview: string;
+  status: string;
+  errorCode: string;
+  errorMsg: string;
+  latencyMs: number;
+  requestAt: string;
+}
+
+export interface McpAuditLogResult {
+  logs: McpMetadataAuditEntry[] | McpCallAuditEntry[];
+  total: number;
+  page: number;
+  size: number;
 }

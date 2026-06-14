@@ -1,26 +1,27 @@
-import json
 import time
 import uuid
 from typing import Any
 
-from app.infrastructure.redis_client import redis_client
+from app.layers.agent_core.memory_orchestrator import memory_orchestrator
+from app.models.memory import MemoryType
 
 
 class SessionManager:
-    """Manages session lifecycle: create, get, update, archive, expire."""
+    """Manages session lifecycle: create, get, update, archive, expire.
 
-    SESSION_TTL: int = 1800
-    KEY_PREFIX: str = "kb"
+    Delegates storage to MemoryOrchestrator (SHORT_TERM memory type)
+    so sessions share the same L0+L1 key namespace as the rest of the
+    memory system.
+    """
 
-    def _session_key(self, user_id: str, session_id: str) -> str:
-        return f"{self.KEY_PREFIX}:{user_id}:session:{session_id}"
+    SESSION_TTL: int = 3600
 
     async def create_session(
         self, user_id: str, task_id: str, session_id: str = ""
     ) -> dict[str, Any]:
         sid = session_id or str(uuid.uuid4())
         now = self._now()
-        session: dict[str, Any] = {
+        session = {
             "session_id": sid,
             "user_id": user_id,
             "task_id": task_id,
@@ -30,21 +31,18 @@ class SessionManager:
             "state": {"context_usage_ratio": 0.0, "loop_count": 0},
             "context_shard_id": None,
         }
-        r = await redis_client.get_redis()
-        await r.set(self._session_key(user_id, sid), json.dumps(session), ex=self.SESSION_TTL)
+        await memory_orchestrator.write(
+            user_id, MemoryType.SHORT_TERM, sid, session, self.SESSION_TTL
+        )
         return session
 
     async def get_session(self, user_id: str, session_id: str) -> dict[str, Any] | None:
-        r = await redis_client.get_redis()
-        raw = await r.get(self._session_key(user_id, session_id))
-        if raw is None:
+        session = await memory_orchestrator.read_session(user_id, session_id)
+        if session is None:
             return None
-        session: dict[str, Any] = json.loads(raw)
         session["last_active"] = self._now()
-        await r.set(
-            self._session_key(user_id, session_id),
-            json.dumps(session),
-            ex=self.SESSION_TTL,
+        await memory_orchestrator.write(
+            user_id, MemoryType.SHORT_TERM, session_id, session, self.SESSION_TTL
         )
         return session
 
@@ -54,16 +52,12 @@ class SessionManager:
             return
         session["state"].update(state_updates)
         session["last_active"] = self._now()
-        r = await redis_client.get_redis()
-        await r.set(
-            self._session_key(user_id, session_id),
-            json.dumps(session),
-            ex=self.SESSION_TTL,
+        await memory_orchestrator.write(
+            user_id, MemoryType.SHORT_TERM, session_id, session, self.SESSION_TTL
         )
 
     async def archive_session(self, user_id: str, session_id: str) -> None:
-        r = await redis_client.get_redis()
-        await r.delete(self._session_key(user_id, session_id))
+        await memory_orchestrator.delete_session(user_id, session_id)
 
     async def cleanup_expired(self) -> int:
         return 0

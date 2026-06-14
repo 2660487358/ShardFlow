@@ -49,9 +49,6 @@ TOOL_COST_MS: dict[str, int] = {
     "read_file": 500,
     "write_file": 800,
     "code_analyze": 1500,
-    "extract_shard": 300,
-    "query_strategy": 400,
-    "save_strategy": 500,
 }
 
 
@@ -84,33 +81,15 @@ class ToolSelector:
                             estimated_cost_ms=sum(TOOL_COST_MS.get(n, 1000) for n in tool_names),
                         )
 
-        # 2. 根据用户偏好工具加权选择
-        preferred_tools = (user_preferences or {}).get("preferred_tools", [])
+        # 2. 冷启动降级
         default_tool_dicts = DEFAULT_TOOL_COMBOS.get(intent, [{"name": "web_search", "source": "mcp"}])
         default_tool_names = [t if isinstance(t, str) else t.get("name", "") for t in default_tool_dicts]
 
-        if preferred_tools:
-            ranked = self._rank_by_preference(default_tool_names, preferred_tools)
-            return ToolSelection(
-                tools=ranked,
-                reason=f"基于用户偏好排序: {preferred_tools}",
-                estimated_cost_ms=sum(TOOL_COST_MS.get(t, 1000) for t in ranked),
-            )
-
-        # 3. 冷启动降级
         return ToolSelection(
             tools=default_tool_names,
             reason="冷启动默认选择",
             estimated_cost_ms=sum(TOOL_COST_MS.get(t, 1000) for t in default_tool_names),
         )
-
-    def _rank_by_preference(self, tools: list[str], preferred: list[str]) -> list[str]:
-        """按用户偏好排序工具列表。"""
-        pref_set = set(preferred)
-        # 偏好工具排前面，其余保持原顺序
-        preferred_tools = [t for t in tools if t in pref_set]
-        other_tools = [t for t in tools if t not in pref_set]
-        return preferred_tools + other_tools
 
     def estimate_cost(self, tools: list[str]) -> int:
         """估算工具调用的总时间成本（毫秒）。"""

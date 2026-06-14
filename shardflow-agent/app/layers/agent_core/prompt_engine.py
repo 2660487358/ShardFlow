@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class PromptEngine:
     """Manages prompt templates and dynamic assembly for ReAct loop stages.
 
-    个人助手版：系统人设为"ShardFlow个人智能助手"，支持画像注入、工具动态生成、意图路由。
+    个人助手版：系统人设为"ShardFlow个人智能助手"，支持工具动态生成、意图路由。
 
     性能优化：系统模板和工具列表（静态内容）做 hash 缓存，避免每次请求重复构建。
     缓存 key = hash(模板名 + 工具列表)，命中时直接复用缓存字符串，Prefill 阶段可受益于
@@ -28,10 +28,8 @@ class PromptEngine:
         # 系统思考模板（个人助手人设 — 输出行为规范版）
         "system_think": (
             "你是 ShardFlow 个人智能助手，正在帮助用户完成以下任务。\n\n"
-            "【用户画像】\n{profile_context}\n\n"
             "【任务目标】\n{task_goal}\n\n"
             "【任务类型】{task_type}\n\n"
-            "【已知上下文】\n{context_shard_info}\n\n"
             "【当前进度】\n"
             "已完成 {completed_steps} 步，共约 {total_estimated_steps} 步\n"
             "执行状态: {execution_summary}\n\n"
@@ -55,7 +53,6 @@ class PromptEngine:
             "- 仅用于记录你的推理过程、分析步骤、决策依据\n"
             '- 禁止包含自我指涉的元评论（如"让我搜索一下"、"我需要调研"、"基于当前状态"）\n'
             '- 禁止包含"我需要提供"、"我应该"、"我可以基于"等自我指涉表述\n'
-            '- 禁止包含"用户画像显示"、"用户偏好"等系统内部状态信息\n'
             '- 禁止包含"无需调用工具"、"可以直接基于知识"等工具调用决策暴露\n'
             '- 禁止包含"这是一个开放式的讨论话题"等对用户意图的元评论\n'
             "- 正确示例：'RPC框架的核心是远程调用透明化，需要关注序列化、网络传输、服务发现三个维度'\n"
@@ -148,20 +145,6 @@ class PromptEngine:
             "只返回意图类型（小写英文），不要其他内容。"
         ),
 
-        # 状态包提取模板
-        "shard_extract": (
-            "基于以下对话历史，提取结构化的状态包信息。\n\n"
-            "【对话历史】\n{conversation_history}\n\n"
-            "【已有状态包】\n{existing_shard}\n\n"
-            '请以 JSON 格式输出，包含字段：\n'
-            "- confirmed: 已确认知识点列表（每个含 fact/confidence/evidence）\n"
-            "- excluded: 已排除假设列表（每个含 hypothesis/reason）\n"
-            "- pending: 待探索问题列表（字符串数组）\n"
-            "- key_decisions: 关键决策列表（每个含 decision/reason/confidence）\n"
-            "- task_type: 任务类型\n"
-            "- task_goal: 任务目标摘要\n"
-        ),
-
         # 摘要模板
         "summarize": (
             "请将以下对话历史压缩为简洁的摘要，保留关键事实、决策和待解决问题：\n\n"
@@ -169,16 +152,6 @@ class PromptEngine:
             "摘要："
         ),
 
-        # 画像注入模板
-        "profile_inject": (
-            "【用户画像已应用】\n"
-            "专业水平: {expertise_level}\n"
-            "回答深度偏好: {preferred_depth}\n"
-            "沟通风格: {communication_style}\n"
-            "专注领域: {domains}\n"
-            "技术栈: {tech_stack}\n"
-            "信息来源偏好: {preferred_sources}\n"
-        ),
     }
 
     # ---- 意图 → Prompt 变体选择 ----
@@ -210,22 +183,6 @@ class PromptEngine:
     def assemble_prompt(self, template: str, variables: dict[str, Any]) -> str:
         return template.format(**variables)
 
-    # ---- Profile Injection ----
-
-    def build_profile_inject_prompt(self, profile: dict[str, Any]) -> str:
-        """生成画像注入提示文本。"""
-        template = self.load_template("profile_inject")
-        return self.assemble_prompt(template, {
-            "expertise_level": profile.get("expertise_level", "intermediate"),
-            "preferred_depth": profile.get("preferred_depth", "DETAIL"),
-            "communication_style": profile.get("communication_style", "concise"),
-            "domains": ", ".join(profile.get("domains", [])) or "通用",
-            "tech_stack": ", ".join(profile.get("tech_stack", [])) or "通用",
-            "preferred_sources": ", ".join(
-                f"{k}({v:.0%})" for k, v in profile.get("preferred_sources", {}).items()
-            ) or "默认",
-        })
-
     # ---- Dynamic Tool List ----
 
     def _build_tool_list(self) -> str:
@@ -243,7 +200,7 @@ class PromptEngine:
             if tools:
                 lines = []
                 for t in tools:
-                    lines.append(f"- {t.name}: {t.description}")
+                    lines.append(f"- {t.tool_name}: {t.description}")
                 result = "\n".join(lines)
                 self._static_cache[cache_key] = (result, time.time())
                 return result
@@ -255,9 +212,6 @@ class PromptEngine:
             "- read_file: 读取指定文件内容，参数: path(文件路径)\n"
             "- write_file: 写入文件，参数: path(文件路径), content(内容)\n"
             "- code_analyze: 代码分析，参数: path(文件路径), query(分析问题)\n"
-            "- extract_shard: 提取状态包快照，参数: scope(提取范围)\n"
-            "- query_strategy: 查询历史策略，参数: intent(意图类型), query(查询内容)\n"
-            "- save_strategy: 保存当前策略，参数: strategy(策略内容)"
         )
         self._static_cache[cache_key] = (result, time.time())
         return result
@@ -295,7 +249,6 @@ class PromptEngine:
             "- 仅用于记录你的推理过程、分析步骤、决策依据\n"
             '- 禁止包含自我指涉的元评论（如"让我搜索一下"、"我需要调研"、"基于当前状态"）\n'
             '- 禁止包含"我需要提供"、"我应该"、"我可以基于"等自我指涉表述\n'
-            '- 禁止包含"用户画像显示"、"用户偏好"等系统内部状态信息\n'
             '- 禁止包含"无需调用工具"、"可以直接基于知识"等工具调用决策暴露\n'
             '- 禁止包含"这是一个开放式的讨论话题"等对用户意图的元评论\n'
             "- 正确示例：'RPC框架的核心是远程调用透明化，需要关注序列化、网络传输、服务发现三个维度'\n"
@@ -366,9 +319,6 @@ class PromptEngine:
         total_estimated_steps = state.get("max_rounds", 15)
         last_observation = state.get("observation", "无（开始推理）")
 
-        # 画像上下文
-        profile_context = state.get("profile_context", "暂无用户画像")
-
         # 执行状态摘要
         exec_state = state.get("execution_state") or {}
         tools_used = exec_state.get("tools_used", [])
@@ -377,13 +327,15 @@ class PromptEngine:
         # 意图提示
         intent_hint = self.INTENT_PROMPT_HINTS.get(task_type, "")
 
+        # 知识库检索上下文
+        kb_context = state.get("kb_context", "")
+
         # === 静态前缀（可被服务端 Prompt Caching 缓存）===
         static_prefix, _ = self._build_static_think_prefix()
 
         # === 动态部分 ===
         dynamic_part = (
-            f"\n\n【用户画像】\n{profile_context}\n\n"
-            f"【任务目标】\n{task_goal}\n\n"
+            f"\n\n【任务目标】\n{task_goal}\n\n"
             f"【任务类型】{task_type}\n\n"
             f"【已知上下文】\n{context_shard_info}\n\n"
             f"【当前进度】\n"
@@ -393,6 +345,8 @@ class PromptEngine:
         )
         if intent_hint:
             dynamic_part += f"【特别提示】{intent_hint}\n"
+        if kb_context:
+            dynamic_part += f"【知识库检索结果】\n以下是从用户知识库中检索到的相关内容，请优先参考：\n{kb_context}\n\n"
 
         return static_prefix + dynamic_part
 
@@ -407,13 +361,6 @@ class PromptEngine:
     def build_intent_classify_prompt(self, user_input: str) -> str:
         template = self.load_template("intent_classify")
         return self.assemble_prompt(template, {"user_input": user_input})
-
-    def build_shard_extract_prompt(self, conversation_history: str, existing_shard: str = "无") -> str:
-        template = self.load_template("shard_extract")
-        return self.assemble_prompt(template, {
-            "conversation_history": conversation_history,
-            "existing_shard": existing_shard,
-        })
 
     def build_summarize_prompt(self, conversation_history: str) -> str:
         template = self.load_template("summarize")

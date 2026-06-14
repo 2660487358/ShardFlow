@@ -1,13 +1,9 @@
 # mypy: ignore-errors
 """LangGraph ReAct 引擎 — 个人助手版。
 
-图结构（架构 v5.0）:
-intent_recognize → profile_inject → llm_think → tool_execute → observe
-    → check_state → (loop|shard_extract → strategy_search → END|strategy_save → END)
-
-新增节点:
-- profile_inject: 意图识别后注入用户画像
-- strategy_search: 分片后检索历史策略
+图结构（架构 v6.0 — 精简版）:
+intent_recognize → llm_think → tool_execute → observe
+    → check_state → (loop|END)
 """
 import asyncio
 import json
@@ -47,6 +43,9 @@ class StreamingAnswerExtractor:
         self._in_thinking = False
         self._format: str = ""  # "tag" or "json"
         self._tag_consumed = False  # whether we've consumed initial tags
+        # JSON fenced code block suppression inside <ANSWER>
+        self._in_json_block = False
+        self._json_buffer = ""  # accumulates to detect fence markers across token splits
 
     def feed(self, token: str) -> tuple[str | None, str | None]:
         """Feed a token and return (answer_content, thinking_content) extracted, or (None, None).
@@ -165,7 +164,76 @@ class StreamingAnswerExtractor:
             return text or None, None
 
     def _process_answer_content(self, text: str) -> tuple[str | None, bool]:
-        """Process text inside ANSWER section. Returns (answer_content, is_done)."""
+        """Process text inside ANSWER section. Returns (answer_content, is_done).
+
+        Suppresses ```json fenced code blocks (tool-call JSON) from streaming.
+        Only natural-language answer content is returned.
+        """
+        if not text:
+            return None, False
+
+        # ---- JSON block suppression ----
+        # When the LLM outputs a tool-call inside <ANSWER>, the system prompt
+        # requires it to use a ```json fenced code block. We detect that block
+        # and suppress it from streaming so users never see raw action_plan JSON.
+        if self._in_json_block:
+            self._json_buffer += text
+            # Look for closing fence: ``` or \n``` at end of the JSON block
+            close_idx = self._json_buffer.find('\n```')
+            if close_idx >= 0:
+                self._in_json_block = False
+                remaining = self._json_buffer[close_idx + 4:]  # after \n```
+                self._json_buffer = ""
+                if remaining.strip():
+                    # Content after the JSON block — check for closing ANSWER tag
+                    return self._process_answer_content(remaining)
+                return None, False
+            # Also handle ``` at very start (no leading newline)
+            if self._json_buffer.strip().endswith('```'):
+                self._in_json_block = False
+                remaining = self._json_buffer[self._json_buffer.rfind('```') + 3:]
+                self._json_buffer = ""
+                if remaining.strip():
+                    return self._process_answer_content(remaining)
+                return None, False
+            return None, False
+
+        # Check if new text (combined with recent buffer) starts a JSON block
+        search_text = self._json_buffer + text if self._json_buffer else text
+        fence_idx = search_text.find('```json')
+        if fence_idx >= 0:
+            before = search_text[:fence_idx]
+            after = search_text[fence_idx:]
+            self._json_buffer = after
+            # Check if the closing fence is already in the captured text
+            close_idx = after.find('\n```')
+            if close_idx >= 0:
+                self._in_json_block = False
+                remaining = after[close_idx + 4:]
+                self._json_buffer = ""
+                if before.strip():
+                    # Valid answer text before the JSON block
+                    return self._process_answer_content(before + remaining)
+                if remaining.strip():
+                    return self._process_answer_content(remaining)
+                return None, False
+            # Also handle ``` at very start
+            if after.strip().endswith('```'):
+                self._in_json_block = False
+                self._json_buffer = ""
+                if before.strip():
+                    return self._process_answer_content(before)
+                return None, False
+            self._in_json_block = True
+            if before.strip():
+                # Return content that came before the JSON fence
+                return self._process_answer_content(before)
+            return None, False
+
+        # Keep a small lookbehind to catch ```json spanning token boundaries
+        self._json_buffer = text[-10:] if len(text) > 10 else text
+
+        # ---- Normal answer content: check for closing ANSWER tag ----
         close_match = self._RE_ANSWER_CLOSE.search(text)
         if close_match:
             answer_content = text[:close_match.start()]
@@ -336,25 +404,6 @@ async def node_intent_recognize(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-async def node_profile_inject(state: dict[str, Any]) -> dict[str, Any]:
-    """节点 2: 画像注入（新增）。
-
-    架构规则 AR-3: 每次推理前必须注入用户画像。
-    从 UserProfileManager 加载画像并注入 Prompt 模板。
-    """
-    from app.layers.agent_core.user_profile_manager import user_profile_manager
-
-    user_id = state.get("user_id", "")
-    if user_id:
-        profile = await user_profile_manager.load_profile(user_id)
-        user_profile_manager.inject_profile(profile, state)
-    else:
-        state["profile_context"] = "暂无用户画像（用户未登录）"
-        state["user_context"] = {}
-
-    return state
-
-
 async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
     """节点 3: LLM 推理思考（流式输出版 — 输出行为规范版）。
 
@@ -367,24 +416,38 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
     from app.layers.agent_core.prompt_engine import prompt_engine
     from app.layers.reasoning.error_handler import error_handler
 
-    # 加载历史 ContextShard（如果还没加载）
-    if not state.get("context_shard_info"):
+    # Knowledge base retrieval: if kb_collection_name is set, inject KB results into state
+    kb_collection_name = state.get("kb_collection_name", "")
+    kb_id = state.get("kb_id", "")
+    if kb_collection_name:
         try:
-            from app.layers.agent_core.memory_orchestrator import memory_orchestrator
-            from app.models.memory import MemoryType
-            task_id = state.get("task_id", "")
-            user_id = state.get("user_id", "")
-            record = await memory_orchestrator.read(user_id, MemoryType.LONG_TERM, task_id)
-            if record and record.data:
-                from app.layers.agent_core.context_shard import context_shard_manager
-                try:
-                    from app.models.context_shard import ContextShard
-                    shard = ContextShard(**record.data)
-                    state["context_shard_info"] = context_shard_manager.inject_shard(shard, state)
-                except Exception:
-                    state["context_shard_info"] = "无（首次对话）"
-        except Exception:
-            pass
+            from app.layers.retrieval.knowledge_searcher import knowledge_searcher
+            user_input = state.get("user_input", "")
+            kb_results = await knowledge_searcher.search(
+                user_input, kb_collection_name, kb_id=kb_id or None,
+            )
+            if kb_results:
+                # Inject KB context into state for prompt engine to use
+                kb_context_parts = []
+                for r in kb_results[:5]:
+                    kb_context_parts.append(
+                        f"[{r.title}] (相关度: {r.relevance_score:.2f})\n{r.snippet}"
+                    )
+                state["kb_context"] = "\n\n".join(kb_context_parts)
+                state["kb_search_results"] = [r.__dict__ for r in kb_results]
+                # Push kb_search SSE event to frontend
+                stream_queue = state.get("_stream_queue")
+                if stream_queue is not None:
+                    from app.api.v1.response_formatter import response_formatter
+                    await stream_queue.put(response_formatter.format_kb_search(state["kb_search_results"]))
+            else:
+                state["kb_context"] = ""
+                state["kb_search_results"] = []
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("KB retrieval failed: %s", e)
+            state["kb_context"] = ""
+            state["kb_search_results"] = []
 
     prompt = prompt_engine.build_think_prompt(state)
     model_id = state.get("model_id", llm_router.select_model("think"))
@@ -633,116 +696,54 @@ async def node_check_state(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-async def node_shard_extract(state: dict[str, Any]) -> dict[str, Any]:
-    """节点 7: 状态包提取。"""
-    from app.layers.agent_core.context_shard import context_shard_manager
-    from app.layers.agent_core.memory_orchestrator import memory_orchestrator
-    from app.models.memory import MemoryType
-
-    shard = await context_shard_manager.extract_shard(state)
-    if shard is not None:
-        shard_dict = shard.model_dump()
-        state["current_shard"] = shard_dict
-        state["shard_saved"] = True
-        state["context_shard_info"] = context_shard_manager.inject_shard(shard, state)
-
-        user_id = state.get("user_id", "")
-        task_id = state.get("task_id", "")
-        try:
-            await memory_orchestrator.write_shard(user_id, task_id, shard_dict)
-        except Exception:
-            try:
-                from app.infrastructure.callback_client import callback_client
-                await callback_client.save_shard(shard_dict)
-            except Exception:
-                pass
-    else:
-        state["shard_saved"] = False
-        state["observation"] = "Shard extraction skipped (context usage below threshold)"
-
-    return state
-
-
-async def node_strategy_search(state: dict[str, Any]) -> dict[str, Any]:
-    """节点 8: 策略检索（新增）。
-
-    架构要求在 shard_extract 后检索历史策略，为策略复用提供依据。
-    """
-    from app.layers.agent_core.strategy_engine import strategy_engine
-
-    intent = state.get("intent", "general_qa")
-    task_goal = state.get("user_input", "")
-    user_id = state.get("user_id", "")
-
-    try:
-        # 检索历史策略
-        results = await strategy_engine.search_strategy(
-            task_type=intent,
-            query_pattern=task_goal[:200],
-            limit=5,
-        )
-        if results:
-            decision = strategy_engine.reuse_decision(results)
-            state["strategy_decision"] = decision.decision
-            state["strategy_similarity"] = decision.similarity
-            state["strategy_suggested_sources"] = decision.suggested_sources
-            if decision.matched_record:
-                state["strategy_matched_id"] = decision.matched_record.strategy_id
-        else:
-            state["strategy_decision"] = "COLD_START"
-            state["strategy_similarity"] = 0.0
-    except Exception:
-        state["strategy_decision"] = "COLD_START"
-        state["strategy_similarity"] = 0.0
-
-    return state
-
-
 async def node_strategy_save(state: dict[str, Any]) -> dict[str, Any]:
-    """节点 9: 策略保存与收尾。"""
-    from app.layers.agent_core.strategy_engine import strategy_engine
-    from app.layers.agent_core.memory_orchestrator import memory_orchestrator
-    from app.models.memory import MemoryType
-    from app.models.strategy import SourceCombo, StrategyRecord
+    """节点 7: 策略记录保存。
 
-    intent = state.get("intent", "general_qa")
-    final_answer = state.get("final_answer", "")
-    loop_count = state.get("loop_count", 0)
+    任务完成后，将本次推理的策略记录（任务类型、查询模式、源组合、评分、耗时）
+    保存到 Java 端，供后续复用和进化学习。
+    """
     user_id = state.get("user_id", "")
-    task_id = state.get("task_id", "")
+    intent = state.get("intent", "general_qa")
+    kb_collection_name = state.get("kb_collection_name", "")
+    tools_used = state.get("tools_used", [])
+    cost_ms = state.get("total_cost_ms", 0)
 
-    strategy_saved = False
+    # Build source combo from tools and KB usage
+    sources = []
+    if kb_collection_name:
+        sources.append("knowledge_base")
+    if tools_used:
+        sources.extend(tools_used if isinstance(tools_used, list) else [tools_used])
+    source_combo = "+".join(sources) if sources else "llm_only"
+
+    # Build query pattern from intent
+    query_pattern = state.get("user_input", "")[:512]
+
+    strategy_data = {
+        "strategyId": f"strat-{state.get('task_id', 'unknown')}",
+        "userId": user_id,
+        "taskType": intent,
+        "queryPattern": query_pattern,
+        "sourceCombo": source_combo,
+        "successScore": 0.0,  # Will be updated via feedback endpoint
+        "costMs": cost_ms,
+    }
+
     try:
-        default_strategy = strategy_engine.get_default_strategy(intent)
-        sources = default_strategy.get("sources", ["web_search"])
-        weights = default_strategy.get("weights", {})
-
-        record = StrategyRecord(
-            strategy_id=f"strategy-{task_id}-{loop_count}",
-            user_id=user_id,
-            task_type=intent,
-            query_pattern=final_answer[:200] if final_answer else "",
-            source_combo=[
-                SourceCombo(source=s, weight=weights.get(s, 0.5), reliability=0.7)
-                for s in sources
-            ],
-            success_score=0.5,
-            cost_ms=loop_count * 2000,
-        )
-
+        from app.infrastructure.callback_client import callback_client
+        await callback_client.save_strategy(strategy_data)
+        state["strategy_saved"] = strategy_data["strategyId"]
+        logger.info("Strategy saved: id=%s, type=%s, combo=%s",
+                     strategy_data["strategyId"], intent, source_combo)
+    except Exception as e:
+        logger.warning("Strategy save failed (non-critical): %s", e)
+        # Buffer for later retry via degradation
         try:
-            await memory_orchestrator.write_strategy(
-                user_id, record.strategy_id, record.model_dump(),
-            )
-            strategy_saved = True
+            from app.layers.agent_core.memory_degradation import memory_degradation
+            await memory_degradation.buffer_write(user_id, "meta", strategy_data["strategyId"], strategy_data)
         except Exception:
-            await strategy_engine.save_strategy(record)
-            strategy_saved = True
-    except Exception:
-        strategy_saved = False
+            pass  # Non-critical, don't block the flow
 
-    state["strategy_saved"] = strategy_saved
-    state["is_done"] = True
     return state
 
 
@@ -751,51 +752,43 @@ async def node_strategy_save(state: dict[str, Any]) -> dict[str, Any]:
 def _route_after_check(state: dict[str, Any]) -> str:
     """check_state 后的条件路由。
 
-    新版路由:
-    - is_done → strategy_save (结束)
-    - should_shard → shard_extract → strategy_search → END
-    - context_usage < 80% → llm_think (继续循环)
-    - context_usage >= 80% → shard_extract (即将超限，先保存)
+    路由策略:
+    - is_done → strategy_save (任务完成，先保存策略再结束)
+    - 否则 → llm_think (继续循环)
     """
     if state.get("is_done", False):
         return "node_strategy_save"
-    if state.get("should_shard", False):
-        return "node_shard_extract"
-    ratio: float = state.get("context_usage_ratio", 0)
-    if ratio < 0.80:
-        return "node_llm_think"
-    return "node_shard_extract"
+    return "node_llm_think"
 
 
 # ---- 图构建 ----
 
 def build_react_graph() -> Any:
-    """构建个人助手版 ReAct 图。
+    """构建个人助手版 ReAct 图（精简版 + 策略保存）。
 
-    新图结构:
-    intent_recognize → profile_inject → llm_think → tool_execute → observe
-        → check_state → (loop | shard_extract → strategy_search → END | strategy_save → END)
+    图结构:
+    intent_recognize → llm_think → tool_execute → observe
+        → check_state → (loop|strategy_save → END)
     """
     workflow: StateGraph = StateGraph(dict)  # type: ignore[type-arg]
 
-    # 注册所有节点
+    # 注册节点
     workflow.add_node("node_intent_recognize", node_intent_recognize)
-    workflow.add_node("node_profile_inject", node_profile_inject)
     workflow.add_node("node_llm_think", node_llm_think)
     workflow.add_node("node_tool_execute", node_tool_execute)
     workflow.add_node("node_observe", node_observe)
     workflow.add_node("node_check_state", node_check_state)
-    workflow.add_node("node_shard_extract", node_shard_extract)
-    workflow.add_node("node_strategy_search", node_strategy_search)
     workflow.add_node("node_strategy_save", node_strategy_save)
 
     # 设置入口和边
     workflow.set_entry_point("node_intent_recognize")
-    workflow.add_edge("node_intent_recognize", "node_profile_inject")
-    workflow.add_edge("node_profile_inject", "node_llm_think")
+    workflow.add_edge("node_intent_recognize", "node_llm_think")
     workflow.add_edge("node_llm_think", "node_tool_execute")
     workflow.add_edge("node_tool_execute", "node_observe")
     workflow.add_edge("node_observe", "node_check_state")
+
+    # 策略保存后直接结束
+    workflow.add_edge("node_strategy_save", END)
 
     # 条件路由
     workflow.add_conditional_edges(
@@ -803,17 +796,9 @@ def build_react_graph() -> Any:
         _route_after_check,
         {
             "node_llm_think": "node_llm_think",
-            "node_shard_extract": "node_shard_extract",
             "node_strategy_save": "node_strategy_save",
         },
     )
-
-    # 分片后 → 策略检索 → 结束
-    workflow.add_edge("node_shard_extract", "node_strategy_search")
-    workflow.add_edge("node_strategy_search", END)
-
-    # 策略保存 → 结束
-    workflow.add_edge("node_strategy_save", END)
 
     return workflow.compile()
 

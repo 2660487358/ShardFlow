@@ -6,7 +6,7 @@ from app.layers.agent_core.memory_orchestrator import MemoryOrchestrator
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_write_and_read_long_term():
+async def test_orchestrator_write_and_read_session_summary():
     orchestrator = MemoryOrchestrator()
     mock_redis = AsyncMock()
     mock_redis.get.return_value = None
@@ -17,13 +17,12 @@ async def test_orchestrator_write_and_read_long_term():
         patch("app.infrastructure.redis_client.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
         patch("app.infrastructure.redis_client.redis_client.connect", AsyncMock()),
         patch("app.infrastructure.redis_client.redis_client.disconnect", AsyncMock()),
-        patch("app.infrastructure.callback_client.callback_client.save_shard", AsyncMock(return_value={"ok": True})),
-        patch("app.infrastructure.callback_client.callback_client.get_shard", AsyncMock(return_value=None)),
+
     ):
-        record = await orchestrator.write("t1", MemoryType.LONG_TERM, "task-1",
+        record = await orchestrator.write("t1", MemoryType.SESSION_SUMMARY, "task-1",
                                            {"fact": "test"})
         assert record.key == "task-1"
-        assert record.memory_type == MemoryType.LONG_TERM
+        assert record.memory_type == MemoryType.SESSION_SUMMARY
 
 
 @pytest.mark.asyncio
@@ -37,14 +36,13 @@ async def test_orchestrator_convenience_methods():
         patch("app.infrastructure.redis_client.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
         patch("app.infrastructure.redis_client.redis_client.connect", AsyncMock()),
         patch("app.infrastructure.redis_client.redis_client.disconnect", AsyncMock()),
-        patch("app.infrastructure.callback_client.callback_client.save_shard", AsyncMock(return_value={"ok": True})),
-        patch("app.infrastructure.callback_client.callback_client.save_strategy", AsyncMock(return_value={"ok": True})),
-    ):
-        shard_record = await orchestrator.write_shard("t1", "task-1", {"version": 1})
-        assert shard_record.memory_type == MemoryType.LONG_TERM
 
-        strategy_record = await orchestrator.write_strategy("t1", "strat-1", {"strategy_id": "strat-1"})
-        assert strategy_record.memory_type == MemoryType.META
+    ):
+        summary_record = await orchestrator.write_summary("t1", "task-1", {"version": 1})
+        assert summary_record.memory_type == MemoryType.SESSION_SUMMARY
+
+        semantic_record = await orchestrator.write_semantic("t1", "sem-1", {"fact": "test"})
+        assert semantic_record.memory_type == MemoryType.SEMANTIC
 
         session_record = await orchestrator.write_session("t1", "session-1", {"messages": []})
         assert session_record.memory_type == MemoryType.SHORT_TERM
@@ -52,8 +50,9 @@ async def test_orchestrator_convenience_methods():
 
 @pytest.mark.asyncio
 async def test_orchestrator_separate_adapters_per_type():
-    """Verify SHORT_TERM, LONG_TERM, and META use separate CompositeAdapter instances."""
+    """Verify SHORT_TERM, SESSION_SUMMARY, SEMANTIC, and EPISODIC use separate CompositeAdapter instances."""
     orchestrator = MemoryOrchestrator()
-    assert orchestrator._short_term is not orchestrator._long_term
-    assert orchestrator._long_term is not orchestrator._meta
-    assert orchestrator._short_term is not orchestrator._meta
+    assert orchestrator._short_term is not orchestrator._session_summary
+    assert orchestrator._session_summary is not orchestrator._semantic
+    assert orchestrator._semantic is not orchestrator._episodic
+    assert orchestrator._short_term is not orchestrator._episodic

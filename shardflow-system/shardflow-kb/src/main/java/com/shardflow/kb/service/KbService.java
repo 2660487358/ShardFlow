@@ -18,4 +18,10 @@ public interface KbService {
     List<KbDocumentEntity> listDocuments(String collectionId);
     KbDocumentEntity addDocument(KbDocumentEntity doc);
     boolean deleteDocument(String id);
+    void updateDocument(KbDocumentEntity doc);
+    Optional<KbDocumentEntity> getDocument(String id);
+
+    // Archive
+    Optional<KbCollectionEntity> archiveCollection(String id);
+    Optional<KbCollectionEntity> unarchiveCollection(String id);
 }

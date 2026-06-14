@@ -1,11 +1,8 @@
 package com.shardflow.callback.controller;
 
 import com.shardflow.callback.service.CallbackService;
-import com.shardflow.callback.util.IdempotencyUtil;
 import com.shardflow.common.dto.Result;
-import com.shardflow.common.dto.ShardSaveRequest;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,7 +19,6 @@ import java.util.Map;
 public class CallbackController {
 
     private final CallbackService callbackService;
-    private final IdempotencyUtil idempotencyUtil;
 
     @Value("${shardflow.java-api-key:}")
     private String javaApiKey;
@@ -36,26 +32,6 @@ public class CallbackController {
         if (providedKey == null || !javaApiKey.equals(providedKey)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or missing X-API-Key");
         }
-    }
-
-    @PostMapping("/shards")
-    public Result<Map<String, Object>> saveShard(
-            @Valid @RequestBody ShardSaveRequest request,
-            HttpServletRequest httpRequest) {
-        checkApiKey(httpRequest);
-        String idempotencyKey = httpRequest.getHeader("X-Idempotency-Key");
-        if (idempotencyKey != null && idempotencyUtil.isDuplicate(idempotencyKey)) {
-            return Result.ok(Map.of("status", "duplicate", "message", "Already processed"));
-        }
-        var result = callbackService.saveShard(request);
-        if (idempotencyKey != null) idempotencyUtil.mark(idempotencyKey);
-        return Result.ok(result);
-    }
-
-    @PostMapping("/strategies")
-    public Result<Map<String, Object>> saveStrategy(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        checkApiKey(request);
-        return Result.ok(callbackService.saveStrategy(body));
     }
 
     @PostMapping("/sessions/complete")
@@ -74,5 +50,45 @@ public class CallbackController {
     public Result<Map<String, Object>> reportProgress(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         checkApiKey(request);
         return Result.ok(callbackService.reportProgress(body));
+    }
+
+    /**
+     * POST /api/v1/callback/shards — Save session state summary from Python推理层.
+     * Per P2.3.2: Callback interface for summary persistence.
+     */
+    @PostMapping("/shards")
+    public Result<Map<String, Object>> saveShard(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        checkApiKey(request);
+        return Result.ok(callbackService.saveShard(body));
+    }
+
+    /**
+     * POST /api/v1/callback/profile — Save user profile from Python推理层.
+     * Per P3.2.2: Callback interface for profile persistence.
+     */
+    @PostMapping("/profile")
+    public Result<Map<String, Object>> saveProfile(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        checkApiKey(request);
+        return Result.ok(callbackService.saveProfile(body));
+    }
+
+    /**
+     * POST /api/v1/callback/memory — Save memory chunk from Python推理层.
+     * Per P4: Callback interface for memory persistence.
+     */
+    @PostMapping("/memory")
+    public Result<Map<String, Object>> saveMemory(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        checkApiKey(request);
+        return Result.ok(callbackService.saveMemory(body));
+    }
+
+    /**
+     * POST /api/v1/callback/strategies — Save strategy record from Python推理层.
+     * Per P6.2.3: Callback interface for strategy persistence.
+     */
+    @PostMapping("/strategies")
+    public Result<Map<String, Object>> saveStrategy(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        checkApiKey(request);
+        return Result.ok(callbackService.saveStrategyRecord(body));
     }
 }

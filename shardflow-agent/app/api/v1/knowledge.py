@@ -25,7 +25,7 @@ router = APIRouter(prefix="/internal/kb", tags=["knowledge-base"])
 # ── Request/Response models ──
 
 class ProcessRequest(BaseModel):
-    document_id: str = Field(..., description="MySQL kb_document.id")
+    document_id: str = Field(..., description="PostgreSQL kb_document.id")
     file_path: str = Field(..., description="Absolute path to uploaded file")
     file_type: str = Field(..., description="File extension without dot (pdf, docx, md, ...)")
     collection_name: str = Field(..., description="Milvus collection name (kb_chunks_{user_id})")

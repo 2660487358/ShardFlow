@@ -1,32 +1,37 @@
 """Tool Registry: 内置工具 + MCP 动态发现。
 
-内置 7 个工具（架构定义），MCP 工具从 Java kb-mcp 注册中心动态发现。
-不硬编码 MCP 工具（符合 AR-5 红线）。
+P6 阶段重构 (FR-BUILTIN-002):
+- 移除硬编码内置工具（符合 AR-5 红线）
+- 内置工具和 MCP 工具统一通过 MCPClient.discover_tools() 发现
+- 内置工具的元数据由 Java 端 BuiltinToolInitializer 注册到 MCP 注册中心
+- Python 端不再区分 builtin 和 mcp，统一接口
+
+FIX-23: 统一使用 MCPToolInfo 数据模型，避免 MCPToolInfo -> ToolMetadata 转换丢失字段
 """
 import logging
 from typing import Any
 
-from app.models.search_result import ToolMetadata
+from app.layers.agent_core.mcp_client import MCPToolInfo
 
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """工具注册中心 — 内置 + MCP 动态发现。"""
+    """工具注册中心 — 统一发现（内置 + MCP）。"""
 
     def __init__(self) -> None:
-        self._tools: dict[str, ToolMetadata] = {}
+        self._tools: dict[str, MCPToolInfo] = {}
         self._mcp_tools_loaded: bool = False
 
-    def register(self, tool: ToolMetadata) -> None:
-        self._tools[tool.name] = tool
+    def register(self, tool: MCPToolInfo) -> None:
+        self._tools[tool.tool_name] = tool
 
-    def get(self, name: str) -> ToolMetadata:
+    def get(self, name: str) -> MCPToolInfo:
         if name not in self._tools:
             raise KeyError(f"Tool not found: {name}")
         return self._tools[name]
 
-    def list_all(self) -> list[ToolMetadata]:
+    def list_all(self) -> list[MCPToolInfo]:
         return list(self._tools.values())
 
     def validate_input(self, tool_name: str, input_data: dict[str, Any]) -> bool:
@@ -38,108 +43,35 @@ class ToolRegistry:
         required = schema.get("required", [])
         return all(k in input_data for k in required)
 
-    # ---- MCP 动态发现 ----
+    # ---- 统一工具发现 ----
 
-    async def discover_mcp_tools(self) -> list[ToolMetadata]:
-        """从 Java kb-mcp 注册中心动态发现 MCP 工具。
+    async def discover_tools(self) -> list[MCPToolInfo]:
+        """从 Java 注册中心动态发现所有工具（含 BUILTIN + MCP）。
 
-        只在首次调用时加载，后续调用从缓存返回。
+        FR-BUILTIN-002: 内置工具与 MCP 工具统一发现，无需区分。
+        FIX-23: 直接使用 MCPToolInfo，不再转换为 ToolMetadata，避免字段丢失。
         """
         if self._mcp_tools_loaded:
-            # 返回当前已注册的 MCP 工具（以 "mcp:" 前缀标识）
-            return [t for t in self._tools.values() if t.name.startswith("mcp:")]
+            return list(self._tools.values())
 
         try:
             from app.layers.agent_core.mcp_client import mcp_client
-            mcp_tools = await mcp_client.discover_tools()
-            for mcp_tool in mcp_tools:
-                if mcp_tool.status == "ACTIVE":
-                    tool_meta = ToolMetadata(
-                        name=f"mcp:{mcp_tool.tool_name}",
-                        description=mcp_tool.description,
-                        version=mcp_tool.version,
-                        input_schema=mcp_tool.input_schema,
-                        output_schema=mcp_tool.output_schema,
-                        permissions=mcp_tool.permissions,
-                    )
-                    self._tools[tool_meta.name] = tool_meta
+            all_tools = await mcp_client.discover_tools()
+            for tool_info in all_tools:
+                if tool_info.status == "ACTIVE":
+                    self._tools[tool_info.tool_name] = tool_info
             self._mcp_tools_loaded = True
-            logger.info(f"MCP tools discovered: {len(mcp_tools)}")
+            logger.info(f"Tools discovered (builtin + MCP): {len(all_tools)}")
         except Exception as e:
-            logger.warning(f"MCP tool discovery failed: {e}")
+            logger.warning(f"Tool discovery failed: {e}")
 
-        return [t for t in self._tools.values() if t.name.startswith("mcp:")]
+        return list(self._tools.values())
 
-    async def refresh_mcp_tools(self) -> list[ToolMetadata]:
-        """强制刷新 MCP 工具列表。"""
-        # 移除旧的 MCP 工具
-        old_mcp = [k for k in self._tools if k.startswith("mcp:")]
-        for k in old_mcp:
-            del self._tools[k]
+    async def refresh_tools(self) -> list[MCPToolInfo]:
+        """强制刷新工具列表。"""
+        self._tools.clear()
         self._mcp_tools_loaded = False
-        return await self.discover_mcp_tools()
+        return await self.discover_tools()
 
 
 tool_registry = ToolRegistry()
-
-
-def _register_default_tools() -> None:
-    """注册 7 个内置工具（架构定义）。
-
-    内置工具列表:
-    - web_search: 联网搜索（通过 MCP Client）
-    - read_file: 读取文件（HTTP 代理到 Java）
-    - write_file: 写入文件（HTTP 代理到 Java）
-    - code_analyze: 代码分析（HTTP 代理到 Java）
-    - extract_shard: 提取状态包快照（内部）
-    - query_strategy: 查询历史策略（HTTP 代理到 Java）
-    - save_strategy: 保存策略记录（HTTP 代理到 Java）
-    """
-    defaults = [
-        ToolMetadata(
-            name="web_search",
-            description="联网搜索：通过搜索引擎获取最新信息",
-            permissions=["search:read"],
-            input_schema={"required": ["query"], "properties": {"query": {"type": "string"}}},
-        ),
-        ToolMetadata(
-            name="read_file",
-            description="读取指定文件内容",
-            permissions=["repo:read"],
-            input_schema={"required": ["path"], "properties": {"path": {"type": "string"}}},
-        ),
-        ToolMetadata(
-            name="write_file",
-            description="写入文件内容",
-            permissions=["repo:write"],
-            input_schema={"required": ["path", "content"], "properties": {"path": {"type": "string"}, "content": {"type": "string"}}},
-        ),
-        ToolMetadata(
-            name="code_analyze",
-            description="代码静态分析和语义理解",
-            permissions=["repo:read"],
-            input_schema={"required": ["path", "query"], "properties": {"path": {"type": "string"}, "query": {"type": "string"}}},
-        ),
-        ToolMetadata(
-            name="extract_shard",
-            description="提取 ContextShard 状态包快照",
-            permissions=["shard:write"],
-        ),
-        ToolMetadata(
-            name="query_strategy",
-            description="查询历史策略记录（语义检索）",
-            permissions=["strategy:read"],
-            input_schema={"required": ["intent"], "properties": {"intent": {"type": "string"}, "query": {"type": "string"}}},
-        ),
-        ToolMetadata(
-            name="save_strategy",
-            description="保存当前策略记录",
-            permissions=["strategy:write"],
-            input_schema={"required": ["strategy"], "properties": {"strategy": {"type": "object"}}},
-        ),
-    ]
-    for tool in defaults:
-        tool_registry.register(tool)
-
-
-_register_default_tools()

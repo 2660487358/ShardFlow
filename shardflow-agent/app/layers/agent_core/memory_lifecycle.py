@@ -16,17 +16,13 @@ logger = logging.getLogger(__name__)
 class MemoryLifecycle:
     """Manages the complete lifecycle of memory records."""
 
-    DEFAULT_TTL_SHORT_TERM = 3600       # 1 hour for session context
-    DEFAULT_TTL_LONG_TERM = 86400 * 7   # 7 days for shards
-    DEFAULT_TTL_META = 86400 * 30       # 30 days for strategies
+    DEFAULT_TTL_SHORT_TERM = 3600               # 1 hour for session context
+    DEFAULT_TTL_SESSION_SUMMARY = 86400 * 7     # 7 days for session summaries
+    DEFAULT_TTL_SEMANTIC = 0                    # Permanent for user facts/preferences
+    DEFAULT_TTL_EPISODIC = 0                    # Permanent for decision paths/events
 
-    # Cleanup interval: every 30 minutes
-    CLEANUP_INTERVAL = 1800
-
-    # Max records per user per type
-    MAX_SHARDS_PER_USER = 1000
-    MAX_STRATEGIES_PER_USER = 500
-    MAX_SESSIONS_PER_USER = 200
+    CLEANUP_INTERVAL = 1800                     # Every 30 minutes
+    MAX_CLEANUP_PER_TICK = 500                  # Cap per cleanup cycle
 
     def __init__(self) -> None:
         self._cleanup_task: asyncio.Task[Any] | None = None
@@ -34,8 +30,9 @@ class MemoryLifecycle:
     def ttl_for(self, memory_type: MemoryType) -> int:
         mapping = {
             MemoryType.SHORT_TERM: self.DEFAULT_TTL_SHORT_TERM,
-            MemoryType.LONG_TERM: self.DEFAULT_TTL_LONG_TERM,
-            MemoryType.META: self.DEFAULT_TTL_META,
+            MemoryType.SESSION_SUMMARY: self.DEFAULT_TTL_SESSION_SUMMARY,
+            MemoryType.SEMANTIC: self.DEFAULT_TTL_SEMANTIC,
+            MemoryType.EPISODIC: self.DEFAULT_TTL_EPISODIC,
         }
         return mapping[memory_type]
 
@@ -59,14 +56,13 @@ class MemoryLifecycle:
     # ------------------------------------------------------------------
 
     async def archive_session(self, user_id: str, session_id: str) -> bool:
-        """Archive a SHORT_TERM session to LONG_TERM shard."""
+        """Archive a SHORT_TERM session to SESSION_SUMMARY."""
         from app.layers.agent_core.memory_orchestrator import memory_orchestrator
 
         session = await memory_orchestrator.read(user_id, MemoryType.SHORT_TERM, session_id)
         if session is None:
             return False
 
-        # Move key data to long-term
         task_id = session.data.get("task_id", session_id)
         shard_data = {
             "session_id": session_id,
@@ -74,53 +70,93 @@ class MemoryLifecycle:
             "summary": session.data.get("summary", ""),
             "archived_at": datetime.now(timezone.utc).isoformat(),
         }
-        await memory_orchestrator.write(user_id, MemoryType.LONG_TERM, task_id, shard_data)
+        await memory_orchestrator.write(user_id, MemoryType.SESSION_SUMMARY, task_id, shard_data)
         await memory_orchestrator.delete(user_id, MemoryType.SHORT_TERM, session_id)
         return True
 
     # ------------------------------------------------------------------
-    # Cleanup: remove expired entries across all memory types
+    # Cleanup: scan all users and memory types for expired entries
     # ------------------------------------------------------------------
 
-    async def cleanup_expired(self, user_id: str) -> dict[str, int]:
-        """Actively clean up expired memory records for a user."""
+    async def cleanup_expired(self) -> int:
+        """Scan all Redis memory keys and delete expired records.
+
+        Scans across all users and memory types. Returns total number of
+        deleted records.
+        """
+        from app.infrastructure.redis_client import redis_client
         from app.layers.agent_core.memory_orchestrator import memory_orchestrator
 
-        cleaned: dict[str, int] = {}
-        for memory_type in MemoryType:
-            query = MemoryQuery(
-                memory_type=memory_type,
-                created_before=datetime.now(timezone.utc),
-                limit=100,
-            )
-            records = await memory_orchestrator.search(user_id, memory_type, query)
+        r = await redis_client.get_redis()
+        now = datetime.now(timezone.utc)
+        deleted_total = 0
+
+        # Pattern: shardflow:{user_id}:mem:{type}:{key}
+        prefix = "shardflow:*:mem:*:*"
+        try:
             count = 0
-            for record in records:
-                if record.ttl_seconds > 0:
-                    age = (datetime.now(timezone.utc) - record.updated_at).total_seconds()
-                    if age > record.ttl_seconds:
-                        await memory_orchestrator.delete(user_id, memory_type, record.key)
-                        count += 1
-            cleaned[memory_type.value] = count
-        return cleaned
+            async for key in r.scan_iter(match=prefix, count=50):
+                key_str = key.decode() if isinstance(key, bytes) else key
+                parts = key_str.split(":")
+                if len(parts) < 6:
+                    continue
+                # parts: shardflow, user_id, mem, type, ...rest
+                user_id = parts[1]
+                memory_type_str = parts[3]
+                record_key = ":".join(parts[4:])
+
+                try:
+                    memory_type = MemoryType(memory_type_str)
+                except ValueError:
+                    continue
+
+                raw = await r.get(key_str)
+                if raw is None:
+                    continue
+
+                try:
+                    import json
+                    data = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+                    ttl_seconds = data.get("ttl_seconds", 0)
+                    if ttl_seconds <= 0:
+                        continue
+                    updated_at_str = data.get("updated_at", "")
+                    if not updated_at_str:
+                        continue
+                    updated_at = datetime.fromisoformat(updated_at_str)
+                    age = (now - updated_at).total_seconds()
+                    if age > ttl_seconds:
+                        await memory_orchestrator.delete(user_id, memory_type, record_key)
+                        deleted_total += 1
+                except Exception:
+                    continue
+
+                count += 1
+                if count >= self.MAX_CLEANUP_PER_TICK:
+                    break
+        except Exception as e:
+            logger.warning("Cleanup scan failed: %s", e)
+
+        if deleted_total > 0:
+            logger.info("Memory cleanup: deleted %d expired records", deleted_total)
+        return deleted_total
 
     # ------------------------------------------------------------------
     # Background cleanup loop
     # ------------------------------------------------------------------
 
-    async def start_background_cleanup(self, user_id: str) -> None:
-        """Start periodic cleanup in background."""
+    async def start_background_cleanup(self) -> None:
+        """Start periodic cleanup for all users in background."""
         async def _loop() -> None:
             while True:
                 await asyncio.sleep(self.CLEANUP_INTERVAL)
                 try:
-                    result = await self.cleanup_expired(user_id)
-                    if any(v > 0 for v in result.values()):
-                        logger.info(f"Memory cleanup: {result}")
+                    await self.cleanup_expired()
                 except Exception as e:
-                    logger.warning(f"Memory cleanup failed: {e}")
+                    logger.warning("Background memory cleanup failed: %s", e)
 
         self._cleanup_task = asyncio.create_task(_loop())
+        logger.info("Memory lifecycle background cleanup started (interval=%ss)", self.CLEANUP_INTERVAL)
 
     async def stop_background_cleanup(self) -> None:
         if self._cleanup_task:

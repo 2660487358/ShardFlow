@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.2.0</version></parent>
+    <artifactId>shardflow-memory</artifactId>
+    <name>ShardFlow Memory</name>
+    <description>情景记忆与审计追溯服务模块 — MemoryChunk CRUD + 冲突检测 + 审计日志查询</description>
+    <dependencies>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
+    </dependencies>
+</project>

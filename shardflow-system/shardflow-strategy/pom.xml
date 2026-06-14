@@ -6,7 +6,7 @@
     <parent><groupId>com.shardflow</groupId><artifactId>shardflow-system</artifactId><version>0.2.0</version></parent>
     <artifactId>shardflow-strategy</artifactId>
     <name>ShardFlow Strategy</name>
-    <description>策略检索与向量匹配模块</description>
+    <description>策略记录与复用服务模块 — StrategyRecord CRUD + 语义检索 + 用户反馈闭环</description>
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>

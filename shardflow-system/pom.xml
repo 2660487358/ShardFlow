@@ -9,7 +9,7 @@
     <version>0.2.0</version>
     <packaging>pom</packaging>
     <name>ShardFlow System</name>
-    <description>ShardFlow 单体 Java 服务：认证授权、数据持久化、用户画像、MCP 注册中心、策略管理</description>
+    <description>ShardFlow 单体 Java 服务：认证授权、数据持久化、MCP 注册中心、知识库</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -22,14 +22,15 @@
         <module>shardflow-common</module>
         <module>shardflow-user-context</module>
         <module>shardflow-callback</module>
-        <module>shardflow-shard</module>
-        <module>shardflow-strategy</module>
         <module>shardflow-auth</module>
-        <module>shardflow-profile</module>
         <module>shardflow-mcp</module>
         <module>shardflow-task</module>
         <module>shardflow-config</module>
         <module>shardflow-kb</module>
+        <module>shardflow-shard</module>
+        <module>shardflow-profile</module>
+        <module>shardflow-memory</module>
+        <module>shardflow-strategy</module>
         <module>shardflow-app</module>
     </modules>
 
@@ -37,7 +38,11 @@
         <java.version>21</java.version>
         <mybatis-plus.version>3.5.16</mybatis-plus.version>
         <sa-token.version>1.45.0</sa-token.version>
-        <mysql-connector.version>8.0.33</mysql-connector.version>
+        <postgresql.version>42.7.3</postgresql.version>
+        <grpc.version>1.68.1</grpc.version>
+        <protobuf.version>3.25.5</protobuf.version>
+        <minio.version>8.5.10</minio.version>
+        <milvus-sdk.version>2.5.5</milvus-sdk.version>
     </properties>
 
     <dependencyManagement>
@@ -55,16 +60,6 @@
             <dependency>
                 <groupId>com.shardflow</groupId>
                 <artifactId>shardflow-callback</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.shardflow</groupId>
-                <artifactId>shardflow-shard</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.shardflow</groupId>
-                <artifactId>shardflow-strategy</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -89,19 +84,34 @@
             </dependency>
             <dependency>
                 <groupId>com.shardflow</groupId>
+                <artifactId>shardflow-mcp</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.shardflow</groupId>
+                <artifactId>shardflow-shard</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.shardflow</groupId>
                 <artifactId>shardflow-profile</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.shardflow</groupId>
-                <artifactId>shardflow-mcp</artifactId>
+                <artifactId>shardflow-memory</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <!-- MySQL Connector -->
             <dependency>
-                <groupId>com.mysql</groupId>
-                <artifactId>mysql-connector-j</artifactId>
-                <version>${mysql-connector.version}</version>
+                <groupId>com.shardflow</groupId>
+                <artifactId>shardflow-strategy</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- PostgreSQL Connector -->
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${postgresql.version}</version>
             </dependency>
             <!-- MyBatis-Plus BOM -->
             <dependency>
@@ -110,6 +120,51 @@
                 <version>${mybatis-plus.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- gRPC -->
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty-shaded</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-protobuf</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-stub</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <!-- MinIO -->
+            <dependency>
+                <groupId>io.minio</groupId>
+                <artifactId>minio</artifactId>
+                <version>${minio.version}</version>
+            </dependency>
+            <!-- Milvus Java SDK -->
+            <dependency>
+                <groupId>io.milvus</groupId>
+                <artifactId>milvus-sdk-java</artifactId>
+                <version>${milvus-sdk.version}</version>
+            </dependency>
+            <!-- Resilience4j Circuit Breaker -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-circuitbreaker</artifactId>
+                <version>2.2.0</version>
+            </dependency>
+            <!-- javax.annotation (required by gRPC generated code) -->
+            <dependency>
+                <groupId>javax.annotation</groupId>
+                <artifactId>javax.annotation-api</artifactId>
+                <version>1.3.2</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

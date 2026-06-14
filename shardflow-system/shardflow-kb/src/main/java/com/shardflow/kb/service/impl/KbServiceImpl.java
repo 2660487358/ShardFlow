@@ -140,4 +140,66 @@ public class KbServiceImpl implements KbService {
         }
         return deleted;
     }
+
+    @Override
+    public void updateDocument(KbDocumentEntity doc) {
+        documentRepo.updateById(doc);
+    }
+
+    @Override
+    public Optional<KbDocumentEntity> getDocument(String id) {
+        try {
+            long numericId = Long.parseLong(id);
+            return Optional.ofNullable(documentRepo.selectById(numericId));
+        } catch (NumberFormatException e) {
+            return Optional.ofNullable(documentRepo.selectOne(
+                new LambdaQueryWrapper<KbDocumentEntity>().eq(KbDocumentEntity::getDocumentCode, id)));
+        }
+    }
+
+    // ── Archive ──
+
+    @Override
+    public Optional<KbCollectionEntity> archiveCollection(String id) {
+        KbCollectionEntity existing = resolveCollection(id);
+        if (existing == null) return Optional.empty();
+        if ("ARCHIVED".equals(existing.getStatus())) {
+            return Optional.of(existing);
+        }
+        if (!"ACTIVE".equals(existing.getStatus())) {
+            log.warn("Cannot archive collection {} with status {}", id, existing.getStatus());
+            return Optional.empty();
+        }
+        existing.setStatus("ARCHIVED");
+        collectionRepo.updateById(existing);
+        log.info("Collection {} archived", id);
+        return Optional.of(collectionRepo.selectById(existing.getId()));
+    }
+
+    @Override
+    public Optional<KbCollectionEntity> unarchiveCollection(String id) {
+        KbCollectionEntity existing = resolveCollection(id);
+        if (existing == null) return Optional.empty();
+        if ("ACTIVE".equals(existing.getStatus())) {
+            return Optional.of(existing);
+        }
+        if (!"ARCHIVED".equals(existing.getStatus())) {
+            log.warn("Cannot unarchive collection {} with status {}", id, existing.getStatus());
+            return Optional.empty();
+        }
+        existing.setStatus("ACTIVE");
+        collectionRepo.updateById(existing);
+        log.info("Collection {} unarchived", id);
+        return Optional.of(collectionRepo.selectById(existing.getId()));
+    }
+
+    private KbCollectionEntity resolveCollection(String id) {
+        try {
+            long numericId = Long.parseLong(id);
+            return collectionRepo.selectById(numericId);
+        } catch (NumberFormatException e) {
+            return collectionRepo.selectOne(
+                new LambdaQueryWrapper<KbCollectionEntity>().eq(KbCollectionEntity::getCollectionCode, id));
+        }
+    }
 }
