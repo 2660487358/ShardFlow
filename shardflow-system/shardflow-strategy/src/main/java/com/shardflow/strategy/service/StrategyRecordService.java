@@ -29,7 +29,7 @@ public interface StrategyRecordService {
     boolean deleteStrategy(String recordId);
 
     /**
-     * Search strategy records (structured query from MySQL).
+     * Search strategy records (structured query from PostgreSQL).
      * Per spec section 7.8: POST /api/v1/strategy/search
      */
     StrategySearchResponse searchStrategy(StrategySearchRequest request);

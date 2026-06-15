@@ -47,7 +47,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             return Optional.of(cached);
         }
 
-        // Fall back to MySQL (L2)
+        // Fall back to PostgreSQL (L2)
         UserProfileEntity entity = repository.selectOne(
                 new LambdaQueryWrapper<UserProfileEntity>()
                         .eq(UserProfileEntity::getUserId, userId)

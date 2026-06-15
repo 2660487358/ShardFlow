@@ -9,9 +9,11 @@ Per spec section 4.4 FR-RR-005:
   3. Historical episodic (low priority, by time desc, 30% token budget)
   4. 10% token budget reserved as buffer
 
-Token budget is derived from ContextManager's usable token count.
+Token budget is derived from settings.memory_assemble_token_budget (default 4096),
+decoupled from model context limit.
 """
 import logging
+import time as _time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -69,11 +71,34 @@ class AssembledContext(BaseModel):
 # ---------------------------------------------------------------------------
 
 class TokenBudget:
-    """Token budget allocation ratios per spec FR-RR-005."""
-    SYSTEM_RATIO: float = 0.30      # System-level memory
-    PROFILE_RATIO: float = 0.30     # User profile
-    EPISODIC_RATIO: float = 0.30    # Historical episodic
-    BUFFER_RATIO: float = 0.10      # Reserved buffer
+    """Token budget allocation ratios per spec FR-RR-005.
+
+    All ratios are read from settings.MEMORY_ASSEMBLE_* configuration.
+    """
+
+    @classmethod
+    @property
+    def SYSTEM_RATIO(cls) -> float:
+        from app.config import settings
+        return settings.memory_assemble_system_ratio
+
+    @classmethod
+    @property
+    def PROFILE_RATIO(cls) -> float:
+        from app.config import settings
+        return settings.memory_assemble_profile_ratio
+
+    @classmethod
+    @property
+    def EPISODIC_RATIO(cls) -> float:
+        from app.config import settings
+        return settings.memory_assemble_episodic_ratio
+
+    @classmethod
+    @property
+    def BUFFER_RATIO(cls) -> float:
+        from app.config import settings
+        return settings.memory_assemble_buffer_ratio
 
     @classmethod
     def allocate(cls, total_budget: int) -> dict[str, int]:
@@ -117,6 +142,7 @@ class ContextAssembler:
         session_id: str = "",
         task_id: str = "",
         extra_system_context: str = "",
+        token_budget: int | None = None,
     ) -> AssembledContext:
         """Assemble memory context for LLM Prompt injection.
 
@@ -125,10 +151,20 @@ class ContextAssembler:
         2. User profile (30% budget)
         3. Historical episodic (30% budget)
         4. Buffer (10% reserved)
+
+        token_budget: Memory injection token budget, decoupled from model context limit.
+                      Defaults to settings.memory_assemble_token_budget (4096).
         """
-        # Calculate total token budget
-        total_budget = context_manager._usable_tokens()
+        from app.config import settings
+
+        # Calculate total token budget (decoupled from model context limit)
+        if token_budget is None:
+            token_budget = settings.memory_assemble_token_budget
+        total_budget = token_budget
         budgets = TokenBudget.allocate(total_budget)
+
+        # 4B-02: Track assembly duration
+        start_time = _time.monotonic()
 
         sections: list[ContextSection] = []
         total_tokens = 0
@@ -187,6 +223,21 @@ class ContextAssembler:
             "Assembled context for user %s: %d tokens / %d budget, overflow=%s",
             user_id, total_tokens, total_budget, overflow,
         )
+
+        # 4B-02: Record assembly metrics
+        try:
+            from app.infrastructure.memory_metrics import memory_metrics
+            elapsed_ms = (_time.monotonic() - start_time) * 1000
+            section_tokens = {s.section_type: s.token_count for s in sections}
+            memory_metrics.record_assembly(
+                elapsed_ms=elapsed_ms,
+                section_tokens=section_tokens,
+                total_tokens=total_tokens,
+                total_budget=total_budget,
+                overflow=overflow,
+            )
+        except Exception:
+            pass  # Metrics recording is non-critical
 
         return assembled
 
@@ -310,20 +361,24 @@ class ContextAssembler:
         )
 
         try:
+            from app.config import settings
+            search_top_k = settings.memory_search_top_k
+            search_min_similarity = settings.memory_search_min_similarity
+
             if query_vector:
                 results = await self._engine.hybrid_search(
                     user_id=user_id,
                     query=query,
                     query_vector=query_vector,
                     filters=search_filters,
-                    top_k=10,
-                    similarity_threshold=0.6,  # Lower threshold for episodic
+                    top_k=search_top_k,
+                    similarity_threshold=search_min_similarity,
                 )
             else:
                 results = await self._engine.structured_search(
                     user_id=user_id,
                     filters=search_filters,
-                    limit=10,
+                    limit=search_top_k,
                 )
         except Exception as e:
             logger.warning("Episodic memory search failed for user %s: %s", user_id, e)
@@ -437,7 +492,7 @@ class ContextAssembler:
         """Estimate token count for text (4 chars ≈ 1 token for Chinese)."""
         if not text:
             return 0
-        return len(text) // 3  # Conservative estimate for mixed CJK/English
+        return len(text) // 4
 
     def _truncate_to_budget(self, text: str, budget: int) -> str:
         """Truncate text to fit within token budget.
@@ -448,7 +503,7 @@ class ContextAssembler:
             return ""
 
         # Estimate character limit from token budget
-        char_limit = budget * 3  # Conservative: 3 chars per token
+        char_limit = budget * 4  # 4 chars per token
 
         if len(text) <= char_limit:
             return text

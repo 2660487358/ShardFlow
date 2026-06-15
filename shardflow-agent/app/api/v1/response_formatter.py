@@ -21,6 +21,7 @@ SSE_EVENT_TYPES = {
     "heartbeat": "heartbeat",
     "context_pressure": "context_pressure",
     "session_switching": "session_switching",
+    "memory_context": "memory_context",
 }
 
 # 兼容过渡：同时发送新旧事件类型，2周过渡期后移除
@@ -135,6 +136,19 @@ class ResponseFormatter:
 
     def format_shard_resume(self, shard_summary: dict[str, Any]) -> bytes:
         return self.format_event("shard_resume", shard_summary)
+
+    def format_memory_context(self, context_shard_info: str, profile_context: str = "",
+                               episodic_context: str = "") -> bytes:
+        """Format memory context injection event for frontend display.
+
+        3D-01: 产出 memory_context SSE 事件，前端可展示记忆注入摘要。
+        """
+        return self.format_event("memory_context", {
+            "context_shard_info": context_shard_info[:500] if context_shard_info else "",
+            "profile_context": profile_context[:300] if profile_context else "",
+            "episodic_context": episodic_context[:300] if episodic_context else "",
+            "has_memory": bool(context_shard_info or profile_context or episodic_context),
+        })
 
     def format_heartbeat(self) -> bytes:
         import time

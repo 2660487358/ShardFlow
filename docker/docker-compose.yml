@@ -179,24 +179,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  mysql:
-    image: mysql:8.0.33
-    ports:
-      - "${SF_INFRA_MYSQL_PORT:-3306}:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: ${SF_INFRA_MYSQL_ROOT_PASSWORD:-shardflow}
-      MYSQL_DATABASE: ${SF_INFRA_MYSQL_DATABASE:-shardflow}
-      MYSQL_USER: ${SF_INFRA_MYSQL_USER:-shardflow}
-      MYSQL_PASSWORD: ${SF_INFRA_MYSQL_PASSWORD:-shardflow}
-    volumes:
-      - mysql-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
-
   prometheus:
     image: prom/prometheus:v2.54.1
     ports:
@@ -226,7 +208,6 @@ volumes:
   milvus-data:
   etcd-data:
   minio-data:
-  mysql-data:
   postgres-data:
   prometheus-data:
   grafana-data:

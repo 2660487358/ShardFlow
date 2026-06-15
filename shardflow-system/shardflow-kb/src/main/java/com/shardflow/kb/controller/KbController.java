@@ -99,7 +99,7 @@ public class KbController {
 
         KbCollectionEntity coll = existing.get();
 
-        // Soft-delete in MySQL (mark DELETING)
+        // Soft-delete in PostgreSQL (mark DELETING)
         coll.setStatus("DELETING");
         kbService.updateCollection(coll.getCollectionCode(), coll);
 

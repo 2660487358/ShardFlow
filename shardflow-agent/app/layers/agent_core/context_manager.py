@@ -10,20 +10,43 @@ class ContextManager:
     - FULL (100%): blocking modal, user must switch or end task
 
     Each level fires once; resets when usage drops 5% below the threshold.
+
+    All thresholds are read from settings.MEMORY_* configuration.
     """
 
-    MAX_CONTEXT_TOKENS: int = 128000
     RESERVED_OUTPUT: int = 4096
     SAFETY_MARGIN: float = 0.10
-    COMPRESS_THRESHOLD: float = 0.70
-    SHARD_THRESHOLD: float = 0.80
-
-    # Three-tier context pressure thresholds
-    PRESSURE_WARNING: float = 0.60
-    PRESSURE_CRITICAL: float = 0.80
-    PRESSURE_FULL: float = 1.0
-
     COOLDOWN_RESET_MARGIN: float = 0.05  # Must drop 5% below threshold to reset
+
+    @property
+    def MAX_CONTEXT_TOKENS(self) -> int:
+        from app.config import settings
+        return settings.memory_max_context_tokens
+
+    @property
+    def COMPRESS_THRESHOLD(self) -> float:
+        from app.config import settings
+        return settings.memory_context_compress_threshold
+
+    @property
+    def SHARD_THRESHOLD(self) -> float:
+        from app.config import settings
+        return settings.memory_shard_threshold
+
+    @property
+    def PRESSURE_WARNING(self) -> float:
+        from app.config import settings
+        return settings.memory_pressure_warning
+
+    @property
+    def PRESSURE_CRITICAL(self) -> float:
+        from app.config import settings
+        return settings.memory_pressure_critical
+
+    @property
+    def PRESSURE_FULL(self) -> float:
+        from app.config import settings
+        return settings.memory_pressure_full
 
     def __init__(self) -> None:
         self._cooldown: dict[str, bool] = {
@@ -87,7 +110,10 @@ class ContextManager:
         if self._cooldown["full"] and usage < (self.PRESSURE_FULL - self.COOLDOWN_RESET_MARGIN):
             self._cooldown["full"] = False
 
-    def manage_window(self, messages: list[dict[str, Any]], max_recent: int = 10) -> list[dict[str, Any]]:
+    def manage_window(self, messages: list[dict[str, Any]], max_recent: int | None = None) -> list[dict[str, Any]]:
+        if max_recent is None:
+            from app.config import settings
+            max_recent = settings.memory_window_size
         if len(messages) <= max_recent:
             return messages
         return messages[-max_recent:]

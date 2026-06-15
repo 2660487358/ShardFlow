@@ -29,6 +29,9 @@ public class SessionStateSummaryEntity {
     @TableField("task_goal")
     private String taskGoal;
 
+    @TableField("compressed_history")
+    private String compressedHistory;
+
     @TableField("knowledge_state")
     private String knowledgeState;
 

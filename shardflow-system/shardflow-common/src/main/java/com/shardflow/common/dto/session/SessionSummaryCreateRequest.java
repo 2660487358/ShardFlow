@@ -24,6 +24,9 @@ public class SessionSummaryCreateRequest {
 
     private String taskGoal;
 
+    /** Per spec 6.2: Natural language version of concept summary (子层A context_summary) */
+    private String compressedHistory;
+
     private KnowledgeState knowledgeState;
 
     private UserContext userContext;

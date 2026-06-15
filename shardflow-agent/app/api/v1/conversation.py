@@ -24,6 +24,7 @@ class ConversationRequest(BaseModel):
     kb_id: str = ""  # Knowledge base collection ID for filtering within Milvus collection
     stream: bool = True
     context: dict[str, Any] | None = None
+    token_budget: int = 4096  # 记忆注入 Token 预算（与模型上下文限制解耦）
 
 
 @router.post("/conversation")
@@ -65,6 +66,68 @@ async def handle_conversation(
     state["model_id"] = body.model or "gpt-4o"
     state["kb_collection_name"] = body.kb_collection_name
     state["kb_id"] = body.kb_id
+
+    # ── 记忆注入链路（2A-01/02/03/04, 3C-03, 4A-05, 4C-02）──
+    # 所有记忆操作通过 MemoryCircuitBreaker 保护
+    # 4A-05: memory_enabled 总开关，一键关闭记忆系统
+    # 4C-02: A/B 测试分组决定是否注入记忆上下文
+    from app.config import settings
+    memory_should_inject = settings.memory_enabled
+
+    # 4C-02: A/B 测试 — control 组不注入记忆
+    if memory_should_inject and settings.memory_ab_enabled:
+        if settings.memory_ab_group == "control":
+            memory_should_inject = False
+
+    if memory_should_inject:
+        try:
+            from app.layers.agent_core.memory_circuit_breaker import get_memory_circuit_breaker
+            cb = get_memory_circuit_breaker()
+
+            # 2A-04: 流式开始前预加载 working memory session
+            from app.layers.agent_core.working_memory_manager import working_memory_manager
+            wm = working_memory_manager.get_session(session_id)
+            if wm is None:
+                wm = await cb.call(
+                    working_memory_manager.load_from_l1, user_id, session_id,
+                )
+            if wm is None:
+                wm = working_memory_manager.create_session(
+                    user_id=user_id, session_id=session_id,
+                    task_id=body.task_id or x_task_id,
+                )
+
+            # 2A-01: ContextAssembler 组装记忆上下文
+            from app.layers.agent_core.context_assembler import context_assembler
+            assembly_result = await cb.call(
+                context_assembler.assemble,
+                user_id=user_id,
+                session_id=session_id,
+                task_id=body.task_id or x_task_id,
+                query=body.message,
+                token_budget=body.token_budget,
+            )
+
+            # 4A-04: assembly_result 是 AssembledContext Pydantic 对象
+            if assembly_result is not None:
+                # Extract section contents from AssembledContext
+                section_map = {s.section_type: s.content for s in assembly_result.sections}
+                state["context_shard_info"] = section_map.get("system", "")
+                state["profile_context"] = section_map.get("profile", "")
+                state["episodic_context"] = section_map.get("episodic", "")
+
+            # 2A-03: 跨会话恢复
+            from app.layers.agent_core.session_recovery_manager import session_recovery_manager
+            recovery_result = await cb.call(
+                session_recovery_manager.try_resume_session, user_id, body.task_id or x_task_id,
+            )
+            if recovery_result and recovery_result.get("resumed"):
+                # 恢复成功时 context_shard_info 优先级高于通用组装
+                state["context_shard_info"] = recovery_result.get("injection_text", state["context_shard_info"])
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Memory injection failed (non-critical): %s", e)
 
     if body.stream:
         async def event_generator() -> Any:

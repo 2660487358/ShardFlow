@@ -416,6 +416,17 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
     from app.layers.agent_core.prompt_engine import prompt_engine
     from app.layers.reasoning.error_handler import error_handler
 
+    # 3D-02: 推送 memory_context SSE 事件（含注入摘要）
+    stream_queue = state.get("_stream_queue")
+    context_shard_info = state.get("context_shard_info", "")
+    profile_context = state.get("profile_context", "")
+    episodic_context = state.get("episodic_context", "")
+    if stream_queue is not None and (context_shard_info or profile_context or episodic_context):
+        from app.api.v1.response_formatter import response_formatter
+        await stream_queue.put(response_formatter.format_memory_context(
+            context_shard_info, profile_context, episodic_context,
+        ))
+
     # Knowledge base retrieval: if kb_collection_name is set, inject KB results into state
     kb_collection_name = state.get("kb_collection_name", "")
     kb_id = state.get("kb_id", "")
@@ -487,6 +498,43 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
 
             content = "".join(collected)
             state["think_result"] = content
+
+            # 4B-04: Check if LLM response references injected memory content
+            try:
+                from app.infrastructure.memory_metrics import memory_metrics
+                context_shard_info = state.get("context_shard_info", "")
+                profile_context = state.get("profile_context", "")
+                episodic_context = state.get("episodic_context", "")
+                has_memory = bool(context_shard_info or profile_context or episodic_context)
+                if has_memory:
+                    # Keyword matching: check if LLM output references memory-injected concepts
+                    memory_keywords = []
+                    for ctx in [context_shard_info, profile_context, episodic_context]:
+                        if ctx:
+                            # Extract key terms from injected context (first 500 chars)
+                            for line in ctx[:500].split("\n"):
+                                line = line.strip().lstrip("- ").strip()
+                                if line and len(line) > 2:
+                                    # Take the first meaningful phrase after colon
+                                    if "：" in line:
+                                        parts = line.split("：", 1)[-1].strip()
+                                        if parts:
+                                            for phrase in parts.split("；")[:3]:
+                                                phrase = phrase.strip()
+                                                if len(phrase) >= 2:
+                                                    memory_keywords.append(phrase)
+                                    elif ":" in line:
+                                        parts = line.split(":", 1)[-1].strip()
+                                        if parts:
+                                            for phrase in parts.split(";")[:3]:
+                                                phrase = phrase.strip()
+                                                if len(phrase) >= 2:
+                                                    memory_keywords.append(phrase)
+                    # Check if any keyword appears in LLM response
+                    referenced = any(kw in content for kw in memory_keywords[:20]) if memory_keywords else False
+                    memory_metrics.record_llm_reference(referenced)
+            except Exception:
+                pass  # Metrics recording is non-critical
 
             parsed = _extract_json_block(content)
             if parsed:
@@ -696,12 +744,105 @@ async def node_check_state(state: dict[str, Any]) -> dict[str, Any]:
             "context_limit": context_manager.MAX_CONTEXT_TOKENS,
         }
 
+    # 4B-03: Record memory_hit and injection_token_ratio metrics
+    try:
+        from app.infrastructure.memory_metrics import memory_metrics
+        context_shard_info = state.get("context_shard_info", "")
+        profile_context = state.get("profile_context", "")
+        episodic_context = state.get("episodic_context", "")
+        has_memory = bool(context_shard_info or profile_context or episodic_context)
+        memory_metrics.record_memory_hit(has_memory)
+        if has_memory and token_count > 0:
+            # Estimate injected tokens from memory context fields
+            injected_text = f"{context_shard_info}\n{profile_context}\n{episodic_context}"
+            injected_tokens = len(injected_text) // 4
+            memory_metrics.record_injection_token_ratio(injected_tokens, token_count)
+    except Exception:
+        pass  # Metrics recording is non-critical
+
     if error_handler.handle_loop_limit(state):
         state = error_handler.format_loop_limit_state(state)
         return state
 
     loop_count: int = state.get("loop_count", 0)
     state["loop_count"] = loop_count + 1
+    return state
+
+
+async def node_shard_extract(state: dict[str, Any]) -> dict[str, Any]:
+    """节点 6.5: 上下文分片提取。
+
+    当上下文使用率超过 SHARD_THRESHOLD (80%) 且任务未完成时触发。
+    执行流程：
+    1. 获取 working memory 数据
+    2. 调用 session_state_summary_manager.extract_and_save() 提取并保存快照
+    3. 格式化注入文本写入 state 的 context_shard_info
+    4. 压缩工作记忆释放上下文空间
+
+    所有记忆操作通过 MemoryCircuitBreaker 保护。
+    """
+    from app.layers.agent_core.working_memory_manager import working_memory_manager
+    from app.layers.agent_core.session_state_summary_manager import session_state_summary_manager
+    from app.layers.agent_core.memory_circuit_breaker import get_memory_circuit_breaker
+
+    cb = get_memory_circuit_breaker()
+    user_id = state.get("user_id", "")
+    session_id = state.get("session_id", "")
+    task_id = state.get("task_id", "")
+
+    try:
+        # 1. 获取 working memory
+        wm = working_memory_manager.get_session(session_id)
+        if wm is None:
+            logger.warning("node_shard_extract: session %s not found in working memory", session_id)
+            return state
+
+        # 2. 提取并保存会话状态快照（熔断器保护）
+        messages = [{"role": m.role, "content": m.content} for m in wm.messages]
+        summary = await cb.call(
+            session_state_summary_manager.extract_and_save,
+            user_id=user_id,
+            task_id=task_id,
+            session_seq=1,
+            task_type=wm.task_type,
+            task_goal=wm.intent_stack[0] if wm.intent_stack else "",
+            messages=messages,
+            context_summary=wm.context_summary,
+            intent_stack=wm.intent_stack,
+            trigger="context_threshold",
+        )
+
+        if summary is None:
+            logger.warning("node_shard_extract: extract_and_save skipped (circuit open or failed)")
+            return state
+
+        # 3. 格式化注入文本写入 state
+        injection_text = session_state_summary_manager.format_injection_text(summary)
+        state["context_shard_info"] = injection_text
+
+        # 推送 SSE 事件通知前端
+        stream_queue = state.get("_stream_queue")
+        if stream_queue is not None:
+            from app.api.v1.response_formatter import response_formatter
+            await stream_queue.put(response_formatter.format_shard_result(
+                shard_id=summary.summary_id,
+                summary=wm.context_summary[:200] if wm.context_summary else "",
+            ))
+
+        # 4. 压缩工作记忆释放上下文空间（熔断器保护）
+        await cb.call(
+            working_memory_manager.compress_context, session_id,
+        )
+
+        logger.info(
+            "node_shard_extract: extracted shard for session=%s, task=%s, summary_id=%s",
+            session_id, task_id, summary.summary_id,
+        )
+
+    except Exception as e:
+        logger.error("node_shard_extract failed (non-critical): %s", e)
+        # 不阻塞对话流，仅记录错误
+
     return state
 
 
@@ -753,6 +894,17 @@ async def node_strategy_save(state: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             pass  # Non-critical, don't block the flow
 
+    # 2B-04: 任务完成后触发 working memory 归档（熔断器保护）
+    session_id = state.get("session_id", "")
+    if session_id:
+        try:
+            from app.layers.agent_core.working_memory_manager import working_memory_manager
+            from app.layers.agent_core.memory_circuit_breaker import get_memory_circuit_breaker
+            cb = get_memory_circuit_breaker()
+            await cb.call(working_memory_manager.archive_session, session_id)
+        except Exception as archive_err:
+            logger.warning("Archive session failed (non-critical): %s", archive_err)
+
     return state
 
 
@@ -763,21 +915,24 @@ def _route_after_check(state: dict[str, Any]) -> str:
 
     路由策略:
     - is_done → strategy_save (任务完成，先保存策略再结束)
+    - should_shard 且 not is_done → shard_extract (上下文超阈值，先分片提取再继续)
     - 否则 → llm_think (继续循环)
     """
     if state.get("is_done", False):
         return "node_strategy_save"
+    if state.get("should_shard", False):
+        return "node_shard_extract"
     return "node_llm_think"
 
 
 # ---- 图构建 ----
 
 def build_react_graph() -> Any:
-    """构建个人助手版 ReAct 图（精简版 + 策略保存）。
+    """构建个人助手版 ReAct 图（精简版 + 策略保存 + 分片提取）。
 
     图结构:
     intent_recognize → llm_think → tool_execute → observe
-        → check_state → (loop|strategy_save → END)
+        → check_state → (loop|shard_extract → llm_think|strategy_save → END)
     """
     workflow: StateGraph = StateGraph(dict)  # type: ignore[type-arg]
 
@@ -787,6 +942,7 @@ def build_react_graph() -> Any:
     workflow.add_node("node_tool_execute", node_tool_execute)
     workflow.add_node("node_observe", node_observe)
     workflow.add_node("node_check_state", node_check_state)
+    workflow.add_node("node_shard_extract", node_shard_extract)
     workflow.add_node("node_strategy_save", node_strategy_save)
 
     # 设置入口和边
@@ -799,12 +955,16 @@ def build_react_graph() -> Any:
     # 策略保存后直接结束
     workflow.add_edge("node_strategy_save", END)
 
+    # 分片提取后继续推理
+    workflow.add_edge("node_shard_extract", "node_llm_think")
+
     # 条件路由
     workflow.add_conditional_edges(
         "node_check_state",
         _route_after_check,
         {
             "node_llm_think": "node_llm_think",
+            "node_shard_extract": "node_shard_extract",
             "node_strategy_save": "node_strategy_save",
         },
     )

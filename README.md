@@ -59,7 +59,7 @@ ShardFlow 的 Python 推理层采用六层架构设计：
 | Python 推理层 | FastAPI + LangGraph + MCP Client + LlamaIndex | 核心推理引擎，ReAct 循环与工具调用 |
 | Java 外围服务 | Spring Boot 4 + MyBatis-Plus 3.5 + Sa-Token 1.45 | 认证、持久化、画像、MCP 注册中心 |
 | 前端 | React 19 + TypeScript + Vite | 助手形态 UI，SSE 流式对话 |
-| 关系数据库 | MySQL 8.0 | 状态快照、策略记录、用户画像 |
+| 关系数据库 | PostgreSQL 18 | 状态快照、策略记录、用户画像 |
 | 向量检索 | Milvus 2.5 | 策略语义检索、知识库文档向量检索 |
 | 缓存 | Redis 7 | 三级缓存 L1 层，Python 直读跳过 Java |
 | 文档处理 | LlamaIndex | 文档解析、分块、向量化、混合检索 |
@@ -116,7 +116,7 @@ ShardFlow/
 - Python 3.11+
 - Node.js 18+
 - Docker & Docker Compose
-- MySQL 8.0
+- PostgreSQL 18
 - Redis 7
 - Milvus 2.5
 

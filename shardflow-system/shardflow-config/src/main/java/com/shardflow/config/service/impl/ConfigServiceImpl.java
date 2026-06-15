@@ -35,7 +35,7 @@ public class ConfigServiceImpl implements ConfigService {
     private final ModelAuditLogRepository modelAuditLogRepository;
 
     // ── Startup Initialization ──
-    // Builtin model seed data is handled by schema.sql (INSERT IGNORE),
+    // Builtin model seed data is handled by schema.sql (ON CONFLICT ... DO NOTHING),
     // no need for @PostConstruct initialization here.
 
     // ── Custom Models ──
@@ -244,7 +244,7 @@ public class ConfigServiceImpl implements ConfigService {
         for (CustomModelEntity c : customs) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("key", c.getModelCode());
-            m.put("label", c.getName() + " (自定义)");
+            m.put("label", c.getName());
             m.put("provider", c.getProvider());
             m.put("model", c.getModel());
             m.put("capabilities", c.getCapabilities());

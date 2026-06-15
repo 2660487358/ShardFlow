@@ -116,7 +116,7 @@ public class KbMessageConsumer {
                 );
                 log.info("MQ DELETE_COMPLETE cleanup: docs={}, colls={}", docDeleted, collDeleted);
             } else {
-                log.error("MILVUS STILL HAS DATA for kb={}, keeping MySQL records as DELETING", msg.getKbId());
+                log.error("MILVUS STILL HAS DATA for kb={}, keeping PostgreSQL records as DELETING", msg.getKbId());
             }
         } else {
             log.error("DELETE_COMPLETE FAILED: kb={}, failedDocs={}",

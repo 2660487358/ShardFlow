@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Input, Button, Typography, message, Dropdown, Tooltip } from 'antd';
 import {
-  SendOutlined,
-  GlobalOutlined, EditOutlined,
+  SendOutlined, PlusOutlined,
+  GlobalOutlined, EditOutlined, LinkOutlined,
   FileAddOutlined, WarningOutlined,
   DownOutlined, UpOutlined,
-  BookOutlined, RobotOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -75,6 +75,8 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
   const [systemModels, setSystemModels] = useState<Array<{ key: string; label: string; provider?: string; model?: string; capabilities?: string; context_window?: number; type?: string; is_verified?: boolean }>>([]);
   const [thinkingExpanded, setThinkingExpanded] = useState<Record<string, boolean>>({});
   const [currentPhaseLabel, setCurrentPhaseLabel] = useState('');
+  const [memoryContext, setMemoryContext] = useState<{context_shard_info: string; profile_context: string; episodic_context: string; has_memory: boolean} | null>(null);
+  const [memoryPanelExpanded, setMemoryPanelExpanded] = useState(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
   const streamingMsgIdRef = useRef<string>('');
@@ -208,6 +210,20 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
           const newSessionId = (data.new_session_id as string) || '';
           if (newSessionId && activeTaskId) {
             window.location.reload();
+          }
+          return;
+        }
+
+        // 3D-03: memory_context 事件 — 展示记忆注入摘要
+        if (event.type === 'memory_context') {
+          const hasMemory = data.has_memory as boolean;
+          if (hasMemory) {
+            setMemoryContext({
+              context_shard_info: (data.context_shard_info as string) || '',
+              profile_context: (data.profile_context as string) || '',
+              episodic_context: (data.episodic_context as string) || '',
+              has_memory: hasMemory,
+            });
           }
           return;
         }
@@ -381,6 +397,61 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     verified: m.type === 'custom' ? !!m.is_verified : true,
   }));
 
+  const builtinModelOptions = modelOptions.filter(m => m.type === 'builtin');
+  const customModelOptions = modelOptions.filter(m => m.type === 'custom');
+
+  const modelMenuItems = [];
+  if (builtinModelOptions.length > 0) {
+    modelMenuItems.push({
+      type: 'group' as const,
+      label: (
+        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', display: 'block', padding: '4px 0' }}>
+          内置模型
+        </span>
+      ),
+      children: builtinModelOptions.map(m => ({
+        key: m.key,
+        label: (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {m.label}
+          </span>
+        ),
+        onClick: () => {
+          setSelectedModel(m.key);
+          localStorage.setItem('shardflow_selected_model', m.key);
+        },
+      })),
+    });
+  }
+  if (builtinModelOptions.length > 0 && customModelOptions.length > 0) {
+    modelMenuItems.push({ type: 'divider' as const });
+  }
+  if (customModelOptions.length > 0) {
+    modelMenuItems.push({
+      type: 'group' as const,
+      label: (
+        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', display: 'block', padding: '4px 0' }}>
+          自定义模型
+        </span>
+      ),
+      children: customModelOptions.map(m => ({
+        key: m.key,
+        label: (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {m.label}
+            {!m.verified && (
+              <WarningOutlined style={{ color: '#faad14', fontSize: 12 }} />
+            )}
+          </span>
+        ),
+        onClick: () => {
+          setSelectedModel(m.key);
+          localStorage.setItem('shardflow_selected_model', m.key);
+        },
+      })),
+    });
+  }
+
   const currentModel = modelOptions.find(m => m.key === selectedModel);
   const currentModelLabel = currentModel?.label || '';
   const isUnverifiedCustom = currentModel?.type === 'custom' && !currentModel?.verified;
@@ -393,6 +464,71 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
       position: 'relative',
     }}>
       <ContextPressureToast />
+      {/* 3D-03: 记忆注入提示展示（可选折叠面板） */}
+      {memoryContext && memoryContext.has_memory && (
+        <div style={{
+          maxWidth: 900,
+          margin: '8px auto 0',
+          width: '100%',
+          padding: '0 20px',
+        }}>
+          <div style={{
+            background: 'rgba(201,168,124,0.06)',
+            border: '1px solid rgba(201,168,124,0.2)',
+            borderRadius: 10,
+            overflow: 'hidden',
+            fontSize: 12,
+          }}>
+            <button
+              onClick={() => setMemoryPanelExpanded(!memoryPanelExpanded)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                width: '100%',
+                padding: '6px 12px',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontSize: 12,
+                color: 'var(--ink-faint)',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
+              {memoryPanelExpanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+              <span>记忆上下文已注入</span>
+            </button>
+            {memoryPanelExpanded && (
+              <div style={{
+                padding: '4px 12px 8px',
+                maxHeight: 150,
+                overflow: 'auto',
+                fontSize: 11,
+                lineHeight: 1.6,
+                color: 'var(--ink-faint)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+              }}>
+                {memoryContext.context_shard_info && (
+                  <div style={{ marginBottom: 4 }}>
+                    <strong>会话状态：</strong>{memoryContext.context_shard_info.slice(0, 300)}
+                  </div>
+                )}
+                {memoryContext.profile_context && (
+                  <div style={{ marginBottom: 4 }}>
+                    <strong>用户画像：</strong>{memoryContext.profile_context.slice(0, 200)}
+                  </div>
+                )}
+                {memoryContext.episodic_context && (
+                  <div>
+                    <strong>情景记忆：</strong>{memoryContext.episodic_context.slice(0, 200)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{
         flex: 1,
         overflow: 'auto',
@@ -435,27 +571,27 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
           </div>
         ) : (
           <div style={{
-            maxWidth: 720,
+            maxWidth: 900,
             margin: '0 auto',
             width: '100%',
-            padding: '24px 24px 0',
+            padding: '20px 20px 0',
             flex: 1,
           }}>
             {messages.map((msg) => (
               <div key={msg.id} className="message-enter" style={{
                 display: 'flex',
                 justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                marginBottom: 24,
+                marginBottom: 20,
               }}>
                 {msg.role === 'user' ? (
                   <div style={{
                     background: 'var(--ink)',
                     color: 'var(--paper)',
                     borderRadius: '16px 16px 4px 16px',
-                    padding: '12px 18px',
-                    maxWidth: '80%',
+                    padding: '10px 16px',
+                    maxWidth: '75%',
                     fontSize: 14,
-                    lineHeight: '1.9',
+                    lineHeight: '1.7',
                     letterSpacing: '0.02em',
                     fontFamily: 'var(--font-serif)',
                   }}>
@@ -481,7 +617,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                             alignItems: 'center',
                             gap: 8,
                             width: '100%',
-                            padding: '8px 14px',
+                            padding: '6px 12px',
                             border: 'none',
                             background: 'rgba(201,168,124,0.06)',
                             cursor: 'pointer',
@@ -513,7 +649,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                         </button>
                         {thinkingExpanded[msg.id] && (
                           <div style={{
-                            padding: '8px 14px',
+                            padding: '6px 12px',
                             maxHeight: 200,
                             overflow: 'auto',
                             fontSize: 12,
@@ -555,10 +691,10 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                       background: 'rgba(255,255,255,0.6)',
                       border: '1px solid var(--paper-dark)',
                       borderRadius: '16px 4px 16px 16px',
-                      padding: msg.content ? '16px 20px' : '14px 20px',
+                      padding: msg.content ? '13px 18px' : '11px 18px',
                       color: 'var(--ink-soft)',
                       fontSize: 15,
-                      lineHeight: '1.9',
+                      lineHeight: '1.7',
                       maxWidth: '100%',
                       letterSpacing: '0.02em',
                       position: 'relative',
@@ -607,7 +743,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
               const isAnswering = streamingMsg?.streamingPhase === 'answering';
 
               return (
-                <div className="message-enter" style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                <div className="message-enter" style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
                   <div style={{ flexShrink: 0 }}>
                     <div style={{
                       width: 36,
@@ -623,7 +759,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                     background: 'rgba(255,255,255,0.6)',
                     border: '1px solid var(--paper-dark)',
                     borderRadius: '16px 4px 16px 16px',
-                    padding: '14px 20px',
+                    padding: '12px 18px',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 12,
@@ -676,12 +812,12 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
       </div>
 
       <div style={{
-        padding: '0 24px 32px',
+        padding: '0 24px 26px',
       }}>
         <div
           ref={inputAreaRef}
           style={{
-            maxWidth: 720,
+            maxWidth: 900,
             margin: '0 auto',
             width: '100%',
             position: 'relative',
@@ -836,7 +972,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             background: 'rgba(255,255,255,0.5)',
             border: '1px solid var(--paper-dark)',
             borderRadius: 20,
-            padding: '8px 12px',
+            padding: '10px 14px',
             width: '100%',
             transition: 'all 0.4s ease',
             position: 'relative',
@@ -852,30 +988,13 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
             (e.currentTarget as HTMLElement).style.boxShadow = 'none';
           }}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-              <Button
-                type="text"
-                onClick={() => setPlusMenuOpen(!plusMenuOpen)}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  color: plusMenuOpen ? 'var(--accent-warm)' : 'var(--ink-faint)',
-                  fontSize: 16,
-                  transition: 'color 0.2s ease',
-                }}
-              />
-
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <TextArea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 placeholder={isAuthenticated ? '输入你的问题...' : '登录后开始对话'}
-                autoSize={{ minRows: 1, maxRows: 5 }}
+                autoSize={{ minRows: 3, maxRows: 12 }}
                 disabled={!isAuthenticated || isStreaming}
                 style={{
                   border: 'none',
@@ -885,151 +1004,176 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                   fontSize: 16,
                   lineHeight: '28px',
                   padding: '4px 0',
-                  flex: 1,
+                  width: '100%',
                   fontFamily: 'var(--font-serif)',
                   letterSpacing: '0.02em',
                   color: 'var(--ink)',
                 }}
               />
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                {isAuthenticated && (
-                  <Dropdown
-                    menu={{
-                      items: modelOptions.map(m => ({
-                        key: m.key,
-                        label: (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {m.label}
-                            {m.type === 'custom' && !m.verified && (
-                              <WarningOutlined style={{ color: '#faad14', fontSize: 12 }} />
-                            )}
-                          </span>
-                        ),
-                        onClick: () => {
-                          setSelectedModel(m.key);
-                          localStorage.setItem('shardflow_selected_model', m.key);
-                        },
-                      })),
-                      selectedKeys: [selectedModel],
-                    }}
-                    trigger={['click']}
-                  >
-                    <Button
-                      type="text"
-                      size="small"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '4px 8px',
-                        borderRadius: 8,
-                        color: isUnverifiedCustom ? '#faad14' : 'var(--ink-faint)',
-                        fontSize: 13,
-                        height: 30,
-                        fontFamily: 'var(--font-sans)',
-                      }}
-                    >
-                      <RobotOutlined style={{ fontSize: 14 }} />
-                      {isUnverifiedCustom && <WarningOutlined style={{ fontSize: 12 }} />}
-                      {currentModelLabel}
-                    </Button>
-                  </Dropdown>
-                )}
-
-                <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Button
                     type="text"
-                    icon={<EditOutlined />}
+                    icon={<PlusOutlined />}
+                    onClick={() => setPlusMenuOpen(!plusMenuOpen)}
                     style={{
-                      width: 34,
-                      height: 34,
+                      width: 36,
+                      height: 36,
                       borderRadius: 10,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
-                      color: 'var(--ink-faint)',
+                      color: plusMenuOpen ? 'var(--accent-warm)' : 'var(--ink-faint)',
                       fontSize: 16,
+                      transition: 'color 0.2s ease',
                     }}
                   />
-                </Tooltip>
+                </div>
 
-                {isStreaming ? (
-                  <Tooltip title="终止对话" placement="top">
-                    <button
-                      onClick={handleStop}
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 10,
-                        background: 'var(--ink)',
-                        color: 'var(--paper)',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease',
-                        fontFamily: 'var(--font-sans)',
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {isAuthenticated && (
+                    <Dropdown
+                      menu={{
+                        items: modelMenuItems,
+                        selectedKeys: [selectedModel],
                       }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.background = 'var(--ink-soft)';
-                        (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)';
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
-                        (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
-                      }}
+                      trigger={['click']}
                     >
-                      <div style={{
-                        width: 12,
-                        height: 12,
-                        background: 'var(--paper)',
-                        borderRadius: 2,
-                      }} />
-                    </button>
-                  </Tooltip>
-                ) : (
-                  <Tooltip title="发送" placement="top">
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() || !isAuthenticated}
+                      <Button
+                        type="text"
+                        size="small"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '4px 8px',
+                          borderRadius: 8,
+                          color: isUnverifiedCustom ? '#faad14' : 'var(--ink-faint)',
+                          fontSize: 13,
+                          height: 30,
+                          fontFamily: 'var(--font-sans)',
+                        }}
+                      >
+                        {isUnverifiedCustom && <WarningOutlined style={{ fontSize: 12 }} />}
+                        {currentModelLabel}
+                      </Button>
+                    </Dropdown>
+                  )}
+
+                  <Tooltip title="优化你的输入内容，使其更清晰、更具体" placement="top">
+                    <Button
+                      type="text"
+                      icon={<EditOutlined />}
                       style={{
-                        width: 40,
-                        height: 40,
+                        width: 34,
+                        height: 34,
                         borderRadius: 10,
-                        background: input.trim() && isAuthenticated ? 'var(--ink)' : 'rgba(42,37,32,0.25)',
-                        color: input.trim() && isAuthenticated ? 'var(--paper)' : 'rgba(255,255,255,0.5)',
-                        border: 'none',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
-                        cursor: input.trim() && isAuthenticated ? 'pointer' : 'not-allowed',
-                        transition: 'all 0.3s ease',
-                        fontFamily: 'var(--font-sans)',
+                        color: 'var(--ink-faint)',
+                        fontSize: 16,
                       }}
-                      onMouseEnter={(e) => {
-                        if (input.trim() && isAuthenticated) {
+                    />
+                  </Tooltip>
+
+                  <Tooltip title="跨会话状态接续" placement="top">
+                    <Button
+                      type="text"
+                      icon={<LinkOutlined />}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        color: 'var(--ink-faint)',
+                        fontSize: 16,
+                      }}
+                    />
+                  </Tooltip>
+
+                  {isStreaming ? (
+                    <Tooltip title="终止对话" placement="top">
+                      <button
+                        onClick={handleStop}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          background: 'var(--ink)',
+                          color: 'var(--paper)',
+                          border: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          fontFamily: 'var(--font-sans)',
+                        }}
+                        onMouseEnter={(e) => {
                           (e.currentTarget as HTMLElement).style.background = 'var(--ink-soft)';
-                          (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
-                          (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(42,37,32,0.15)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (input.trim() && isAuthenticated) {
+                          (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)';
+                        }}
+                        onMouseLeave={(e) => {
                           (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
-                          (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
-                          (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                        }
-                      }}
-                    >
-                      <SendOutlined style={{ fontSize: 16 }} />
-                    </button>
-                  </Tooltip>
-                )}
+                          (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+                        }}
+                      >
+                        <div style={{
+                          width: 12,
+                          height: 12,
+                          background: 'var(--paper)',
+                          borderRadius: 2,
+                        }} />
+                      </button>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="发送" placement="top">
+                      <button
+                        onClick={handleSend}
+                        disabled={!input.trim() || !isAuthenticated}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          background: input.trim() && isAuthenticated ? 'var(--ink)' : 'rgba(42,37,32,0.25)',
+                          color: input.trim() && isAuthenticated ? 'var(--paper)' : 'rgba(255,255,255,0.5)',
+                          border: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          cursor: input.trim() && isAuthenticated ? 'pointer' : 'not-allowed',
+                          transition: 'all 0.3s ease',
+                          fontFamily: 'var(--font-sans)',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (input.trim() && isAuthenticated) {
+                            (e.currentTarget as HTMLElement).style.background = 'var(--ink-soft)';
+                            (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
+                            (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(42,37,32,0.15)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (input.trim() && isAuthenticated) {
+                            (e.currentTarget as HTMLElement).style.background = 'var(--ink)';
+                            (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                            (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                          }
+                        }}
+                      >
+                        <SendOutlined style={{ fontSize: 16 }} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             </div>
           </div>

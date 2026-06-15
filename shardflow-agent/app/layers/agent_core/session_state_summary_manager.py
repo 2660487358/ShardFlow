@@ -100,6 +100,7 @@ class SessionStateSummaryManager:
             session_seq=session_seq,
             task_type=task_type,
             task_goal=task_goal or (intent_stack[0] if intent_stack else ""),
+            compressed_history=context_summary,
             knowledge_state=knowledge_state,
             user_context=user_context,
             execution_state=execution_state,
@@ -255,11 +256,20 @@ class SessionStateSummaryManager:
             if tool_name and tool_name not in tools_used:
                 tools_used.append(tool_name)
 
+        # Estimate remaining progress based on intent stack
+        estimated_remaining = ""
+        if intent_stack:
+            # Has active intents = task in progress
+            estimated_remaining = "50%"
+        elif len(messages) > 4:
+            # No active intents but substantial conversation = likely near completion
+            estimated_remaining = "90%"
+
         return ExecutionState(
             completed_steps=len(messages),
             current_step=intent_stack[-1] if intent_stack else "",
             tools_used=tools_used,
-            estimated_remaining="",
+            estimated_remaining=estimated_remaining,
         )
 
     def _build_source_preference(
@@ -340,7 +350,10 @@ class SessionStateSummaryManager:
         """Find unfinished tasks for a user across all ports.
 
         Scans Redis for recent session state summaries that indicate
-        incomplete tasks.
+        incomplete tasks. A task is considered unfinished if:
+        - estimated_remaining is a non-empty, non-"100%" value, OR
+        - the summary has pending items in knowledge_state, OR
+        - the summary has a current_step set (indicating in-progress)
         """
         try:
             from app.infrastructure.redis_client import redis_client
@@ -354,10 +367,25 @@ class SessionStateSummaryManager:
                 if raw:
                     try:
                         data = json.loads(raw)
-                        # Check if task appears unfinished
                         exec_state = data.get("execution_state", {})
+                        ks = data.get("knowledge_state", {})
                         remaining = exec_state.get("estimated_remaining", "")
-                        if remaining and remaining != "0%" and remaining != "100%":
+                        current_step = exec_state.get("current_step", "")
+                        pending_items = ks.get("pending", [])
+
+                        # Task is unfinished if:
+                        # 1. estimated_remaining indicates progress (< 100%)
+                        is_unfinished = False
+                        if remaining and remaining not in ("0%", "100%", ""):
+                            is_unfinished = True
+                        # 2. Has pending items to resolve
+                        elif pending_items:
+                            is_unfinished = True
+                        # 3. Has a current step (task in progress)
+                        elif current_step and current_step not in ("", "completed", "done"):
+                            is_unfinished = True
+
+                        if is_unfinished:
                             unfinished.append(data)
                     except (json.JSONDecodeError, TypeError):
                         continue

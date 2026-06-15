@@ -43,6 +43,16 @@ class TokenUsage(BaseModel):
     usage_ratio: float = 0.0
 
 
+class StructuredSummary(BaseModel):
+    """FR-WM-004: Structured version of concept summary (子层B).
+
+    Maintained alongside context_summary for direct use in snapshot assembly.
+    """
+    confirmed: list[str] = Field(default_factory=list)
+    excluded: list[str] = Field(default_factory=list)
+    pending: list[str] = Field(default_factory=list)
+
+
 class WorkingMemoryData(BaseModel):
     """FR-WM-004: Complete working memory data structure.
 
@@ -54,10 +64,12 @@ class WorkingMemoryData(BaseModel):
     messages: list[MessageItem] = Field(default_factory=list)
     intent_stack: list[str] = Field(default_factory=list)
     context_summary: str = ""
+    structured_summary: StructuredSummary = Field(default_factory=StructuredSummary)
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
     task_id: str = ""
     task_type: str = ""
     is_compressed: bool = False
+    compress_round_count: int = 0
 
     model_config = {"extra": "allow"}
 
@@ -73,10 +85,15 @@ class WorkingMemoryManager:
     Short-term memory is never persisted to L2 (Java/PostgreSQL).
     """
 
-    # FR-WM-002: Compression threshold (80% usage)
-    COMPRESS_THRESHOLD: float = 0.80
-    # Target compression ratio: 20-30% of original
-    TARGET_COMPRESS_RATIO: float = 0.25
+    @property
+    def COMPRESS_THRESHOLD(self) -> float:
+        from app.config import settings
+        return settings.memory_compress_threshold
+
+    @property
+    def TARGET_COMPRESS_RATIO(self) -> float:
+        from app.config import settings
+        return settings.memory_target_compress_ratio
 
     def __init__(self) -> None:
         # L0 cache: session_id -> WorkingMemoryData
@@ -204,6 +221,11 @@ class WorkingMemoryManager:
 
         Strategy: Keep recent messages (last 4), summarize older ones.
         Target compression ratio: 20-30% of original text.
+
+        校正压缩机制 (3B-01):
+        当 compress_round_count > 0 且 compress_round_count % K == 0 时，
+        执行校正压缩（将当前窗口 + 已有概念摘要一起过 LLM），
+        产出校正后双版本替代累积版本，防止增量误差累积。
         """
         wm = self._sessions.get(session_id)
         if wm is None:
@@ -214,28 +236,40 @@ class WorkingMemoryManager:
             return wm.context_summary
 
         # Split: messages to summarize vs. keep
-        keep_recent = 4
+        from app.config import settings
+        keep_recent = settings.memory_window_size
         messages_to_compress = wm.messages[:-keep_recent]
         recent_messages = wm.messages[-keep_recent:]
 
         if not messages_to_compress:
             return wm.context_summary
 
-        # Build compression prompt
-        compression_prompt = self._build_compression_prompt(messages_to_compress, wm.context_summary)
+        # 校正压缩判断：每 K 轮压缩触发一次校正
+        corrective_interval = self._get_corrective_interval()
+        should_corrective = (
+            wm.compress_round_count > 0
+            and wm.compress_round_count % corrective_interval == 0
+        )
 
-        # Call LLM for compression
-        summary = await self._call_llm_compress(compression_prompt)
+        if should_corrective:
+            summary = await self._corrective_compress(wm, recent_messages)
+        else:
+            # 常规增量压缩
+            compression_prompt = self._build_compression_prompt(messages_to_compress, wm.context_summary)
+            summary = await self._call_llm_compress(compression_prompt)
 
         # Update working memory
         wm.context_summary = summary
+        wm.structured_summary = self._parse_structured_summary(summary)
         wm.messages = recent_messages
         wm.is_compressed = True
+        wm.compress_round_count += 1
         self._update_token_usage(wm)
 
         logger.info(
-            "Context compressed for session %s: %d messages -> summary + %d recent messages",
+            "Context compressed for session %s: %d messages -> summary + %d recent messages (round=%d, corrective=%s)",
             session_id, len(messages_to_compress), len(recent_messages),
+            wm.compress_round_count, should_corrective,
         )
 
         # Persist compressed state to L1 (Redis)
@@ -321,6 +355,91 @@ class WorkingMemoryManager:
             key_lines = lines[:keep_count]
         return "\n".join(key_lines)
 
+    def _parse_structured_summary(self, summary_text: str) -> StructuredSummary:
+        """Parse a text summary into a StructuredSummary model.
+
+        Extracts confirmed/excluded/pending items from the compressed
+        summary text, keeping structured_summary in sync with context_summary.
+        """
+        confirmed: list[str] = []
+        excluded: list[str] = []
+        pending: list[str] = []
+
+        for line in summary_text.split("\n"):
+            line = line.strip().lstrip("- ").strip()
+            if not line:
+                continue
+            if line.startswith("已确认") or line.startswith("确认结论"):
+                content = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
+                if content:
+                    confirmed.append(content)
+            elif line.startswith("已排除") or line.startswith("排除方案"):
+                content = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
+                if content:
+                    excluded.append(content)
+            elif line.startswith("待办") or line.startswith("待深入"):
+                content = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
+                if content:
+                    pending.append(content)
+
+        return StructuredSummary(confirmed=confirmed, excluded=excluded, pending=pending)
+
+    # ------------------------------------------------------------------
+    # 3B: Corrective compression
+    # ------------------------------------------------------------------
+
+    def _get_corrective_interval(self) -> int:
+        """Get the corrective compression interval from config, default 20."""
+        try:
+            from app.config import settings
+            return getattr(settings, "memory_corrective_compress_interval", 20)
+        except Exception:
+            return 20
+
+    async def _corrective_compress(
+        self, wm: WorkingMemoryData, recent_messages: list[MessageItem],
+    ) -> str:
+        """校正压缩：将当前窗口 + 已有概念摘要一起过 LLM。
+
+        产出校正后双版本替代累积版本，防止增量误差累积。
+        校正压缩后 compress_round_count 不重置，继续累加。
+        """
+        # 构建校正压缩 Prompt：包含已有摘要 + 当前窗口
+        conversation_text = "\n".join(
+            f"[{m.role}] {m.content[:500]}" for m in recent_messages
+        )
+
+        prompt = (
+            "请对以下内容执行校正压缩。你将看到已有的概念摘要和当前对话窗口，"
+            "请综合两者产出一份完整、准确、无遗漏的校正摘要。\n\n"
+            "要求：\n"
+            "1. 保留所有关键实体（人名、地名、时间、数值、技术术语）\n"
+            "2. 保留已确认的结论和已排除的方案\n"
+            "3. 保留待办事项和未解决问题\n"
+            "4. 去除寒暄、重复确认等低信息内容\n"
+            "5. 压缩率为原始文本的20-30%\n"
+            "6. 输出格式：\n"
+            "   - 已确认结论：...\n"
+            "   - 已排除方案：...\n"
+            "   - 待办事项：...\n"
+            "   - 关键实体：...\n"
+            "   - 当前意图：...\n"
+        )
+
+        if wm.context_summary:
+            prompt += f"\n已有概念摘要（需校正）：\n{wm.context_summary}\n"
+
+        prompt += f"\n当前对话窗口：\n{conversation_text}"
+
+        summary = await self._call_llm_compress(prompt)
+
+        logger.info(
+            "Corrective compression applied for session %s (round=%d)",
+            wm.session_id, wm.compress_round_count,
+        )
+
+        return summary
+
     # ------------------------------------------------------------------
     # FR-WM-003: Short-term memory archiving
     # ------------------------------------------------------------------
@@ -379,6 +498,14 @@ class WorkingMemoryManager:
 
         # Clean up L0 after successful archive
         self._sessions.pop(session_id, None)
+
+        # 3C-04: 归档后清理 Redis SHORT_TERM 数据
+        try:
+            await memory_orchestrator.delete(wm.user_id, MemoryType.SHORT_TERM, session_id)
+            logger.info("Cleaned up Redis SHORT_TERM data for session %s", session_id)
+        except Exception as cleanup_err:
+            logger.warning("Failed to clean up Redis SHORT_TERM data: %s", cleanup_err)
+
         logger.info(
             "Session %s archived: summary=%s, semantic=%d, episodic=%d",
             session_id,
@@ -390,22 +517,32 @@ class WorkingMemoryManager:
         return archive_result
 
     def _extract_summary(self, wm: WorkingMemoryData) -> dict[str, Any]:
-        """Extract session state summary from working memory."""
-        # Build knowledge state from messages and context summary
-        confirmed: list[str] = []
-        excluded: list[str] = []
-        pending: list[str] = []
+        """Extract session state summary from working memory.
 
-        # Parse context_summary for structured knowledge
+        Per spec 6.2: compressed_history = context_summary (子层A),
+        knowledge_state = structured_summary + key_decisions from current window.
+        """
+        # Use structured_summary directly (already maintained during compression)
+        confirmed = list(wm.structured_summary.confirmed)
+        excluded = list(wm.structured_summary.excluded)
+        pending = list(wm.structured_summary.pending)
+
+        # Also parse context_summary for any additional items not in structured version
         if wm.context_summary:
             for line in wm.context_summary.split("\n"):
                 line = line.strip()
                 if line.startswith("- 已确认") or line.startswith("已确认结论"):
-                    confirmed.append(line.lstrip("- 已确认结论：").strip())
+                    item = line.lstrip("- 已确认结论：").strip()
+                    if item and item not in confirmed:
+                        confirmed.append(item)
                 elif line.startswith("- 已排除") or line.startswith("已排除方案"):
-                    excluded.append(line.lstrip("- 已排除方案：").strip())
+                    item = line.lstrip("- 已排除方案：").strip()
+                    if item and item not in excluded:
+                        excluded.append(item)
                 elif line.startswith("- 待办") or line.startswith("待办事项"):
-                    pending.append(line.lstrip("- 待办事项：").strip())
+                    item = line.lstrip("- 待办事项：").strip()
+                    if item and item not in pending:
+                        pending.append(item)
 
         # Collect tools used from messages
         tools_used = list(set(
@@ -414,6 +551,13 @@ class WorkingMemoryManager:
             if m.metadata.get("tool_name")
         ))
 
+        # Estimate remaining progress from intent stack
+        estimated_remaining = ""
+        if wm.intent_stack:
+            estimated_remaining = "50%"
+        if not wm.intent_stack and len(wm.messages) > 4:
+            estimated_remaining = "90%"
+
         return {
             "summary_id": f"ss_{uuid.uuid4().hex[:12]}",
             "user_id": wm.user_id,
@@ -421,6 +565,7 @@ class WorkingMemoryManager:
             "session_seq": 1,
             "task_type": wm.task_type,
             "task_goal": wm.intent_stack[0] if wm.intent_stack else "",
+            "compressed_history": wm.context_summary,
             "knowledge_state": {
                 "confirmed": confirmed,
                 "excluded": excluded,
@@ -432,7 +577,7 @@ class WorkingMemoryManager:
                 "completed_steps": len(wm.messages),
                 "current_step": wm.intent_stack[-1] if wm.intent_stack else "",
                 "tools_used": tools_used,
-                "estimated_remaining": "",
+                "estimated_remaining": estimated_remaining,
             },
             "source_preference": {},
             "version": 1,

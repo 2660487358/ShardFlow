@@ -27,4 +27,9 @@ def create_initial_state(
         "is_done": False,
         "error": None,
         "max_rounds": max_rounds,
+        # 记忆架构字段
+        "context_shard_info": "",
+        "profile_context": "",
+        "episodic_context": "",
+        "_memory_metrics": {},
     }

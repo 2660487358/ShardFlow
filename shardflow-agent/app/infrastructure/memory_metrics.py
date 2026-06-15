@@ -1,10 +1,16 @@
-"""MemoryMetrics — 记忆架构监控指标收集器 (P7.3).
+"""MemoryMetrics — 记忆架构监控指标收集器 (P7.3 + 4B).
 
 Implements P7.3 monitoring metrics:
 - P7.3.1: 记忆命中率监控 — L0/L1/L2 命中率
 - P7.3.2: 记忆新鲜度监控 — 最近访问时间分布
 - P7.3.3: 记忆压缩率监控 — 压缩前后 token 比率
 - P7.3.4: 用户画像完整度监控 — 画像字段覆盖率
+
+Phase 4B metrics:
+- 4B-01: injection_token_ratio — 注入 Token 占比
+- 4B-01: memory_hit — 是否有匹配记忆
+- 4B-01: llm_reference_rate — LLM 是否引用记忆
+- 4B-02: assembly metrics — 装配耗时、各 section Token 数、总 Token 数、是否溢出
 """
 import threading
 from collections import OrderedDict
@@ -25,6 +31,8 @@ class MemoryMetrics:
     VALID_TIERS = ("L0", "L1", "L2")
     MAX_ACCESS_RECORDS = 10000
     MAX_COMPRESSION_RECORDS = 1000
+    MAX_ASSEMBLY_RECORDS = 1000
+    MAX_REFERENCE_RECORDS = 1000
 
     # Freshness distribution buckets
     FRESHNESS_BUCKETS = ["<1h", "1h-6h", "6h-24h", "1d-7d", ">7d"]
@@ -44,6 +52,20 @@ class MemoryMetrics:
 
         # P7.3.4: Profile completeness — user_id -> (total_fields, filled_fields)
         self._profile_completeness: dict[str, tuple[int, int]] = {}
+
+        # 4B-01: Memory hit tracking — total rounds with/without memory match
+        self._memory_hit_count: int = 0
+        self._memory_miss_count: int = 0
+
+        # 4B-01: Injection token ratio records — list of (injected_tokens, total_context_tokens)
+        self._injection_ratio_records: list[tuple[int, int]] = []
+
+        # 4B-01: LLM reference rate tracking — total responses / referenced count
+        self._llm_response_count: int = 0
+        self._llm_referenced_count: int = 0
+
+        # 4B-02: Assembly metrics — list of assembly records
+        self._assembly_records: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # P7.3.1: Hit rate monitoring
@@ -254,6 +276,164 @@ class MemoryMetrics:
         return sum(ratios) / len(ratios) if ratios else 0.0
 
     # ------------------------------------------------------------------
+    # 4B-01: Memory hit tracking
+    # ------------------------------------------------------------------
+
+    def record_memory_hit(self, has_match: bool) -> None:
+        """Record whether memory had a matching result for a query.
+
+        Args:
+            has_match: True if relevant memory was found and injected.
+        """
+        with self._lock:
+            if has_match:
+                self._memory_hit_count += 1
+            else:
+                self._memory_miss_count += 1
+
+    def get_memory_hit_rate(self) -> float:
+        """Get the memory hit rate (0.0-1.0).
+
+        Returns:
+            Ratio of rounds where memory was successfully matched.
+        """
+        with self._lock:
+            total = self._memory_hit_count + self._memory_miss_count
+            return self._memory_hit_count / total if total > 0 else 0.0
+
+    # ------------------------------------------------------------------
+    # 4B-01: Injection token ratio
+    # ------------------------------------------------------------------
+
+    def record_injection_token_ratio(
+        self, injected_tokens: int, total_context_tokens: int,
+    ) -> None:
+        """Record the token ratio of memory injection vs total context.
+
+        Args:
+            injected_tokens: Number of tokens from memory injection.
+            total_context_tokens: Total tokens in the LLM context.
+        """
+        if total_context_tokens <= 0:
+            return
+        with self._lock:
+            if len(self._injection_ratio_records) >= self.MAX_ASSEMBLY_RECORDS:
+                self._injection_ratio_records.pop(0)
+            self._injection_ratio_records.append((injected_tokens, total_context_tokens))
+
+    def get_injection_token_ratio_stats(self) -> dict[str, Any]:
+        """Get injection token ratio statistics.
+
+        Returns:
+            Dict with avg_ratio, min_ratio, max_ratio, sample_count.
+        """
+        with self._lock:
+            records = list(self._injection_ratio_records)
+
+        if not records:
+            return {"avg_ratio": 0.0, "min_ratio": 0.0, "max_ratio": 0.0, "sample_count": 0}
+
+        ratios = [injected / total for injected, total in records if total > 0]
+        if not ratios:
+            return {"avg_ratio": 0.0, "min_ratio": 0.0, "max_ratio": 0.0, "sample_count": len(records)}
+
+        return {
+            "avg_ratio": sum(ratios) / len(ratios),
+            "min_ratio": min(ratios),
+            "max_ratio": max(ratios),
+            "sample_count": len(records),
+        }
+
+    # ------------------------------------------------------------------
+    # 4B-01: LLM reference rate
+    # ------------------------------------------------------------------
+
+    def record_llm_reference(self, referenced: bool) -> None:
+        """Record whether the LLM response referenced injected memory content.
+
+        Args:
+            referenced: True if LLM output contains references to injected memory.
+        """
+        with self._lock:
+            self._llm_response_count += 1
+            if referenced:
+                self._llm_referenced_count += 1
+
+    def get_llm_reference_rate(self) -> float:
+        """Get the LLM reference rate (0.0-1.0).
+
+        Returns:
+            Ratio of LLM responses that referenced injected memory content.
+        """
+        with self._lock:
+            total = self._llm_response_count
+            return self._llm_referenced_count / total if total > 0 else 0.0
+
+    # ------------------------------------------------------------------
+    # 4B-02: Assembly metrics
+    # ------------------------------------------------------------------
+
+    def record_assembly(
+        self,
+        elapsed_ms: float,
+        section_tokens: dict[str, int],
+        total_tokens: int,
+        total_budget: int,
+        overflow: bool,
+    ) -> None:
+        """Record context assembly metrics.
+
+        Args:
+            elapsed_ms: Assembly duration in milliseconds.
+            section_tokens: Dict mapping section_type -> token count.
+            total_tokens: Total assembled tokens.
+            total_budget: Token budget for assembly.
+            overflow: Whether content exceeded budget.
+        """
+        with self._lock:
+            if len(self._assembly_records) >= self.MAX_ASSEMBLY_RECORDS:
+                self._assembly_records.pop(0)
+            self._assembly_records.append({
+                "elapsed_ms": elapsed_ms,
+                "section_tokens": section_tokens,
+                "total_tokens": total_tokens,
+                "total_budget": total_budget,
+                "overflow": overflow,
+            })
+
+    def get_assembly_stats(self) -> dict[str, Any]:
+        """Get assembly statistics.
+
+        Returns:
+            Dict with avg_elapsed_ms, overflow_count, total_assemblies,
+            avg_token_usage_ratio.
+        """
+        with self._lock:
+            records = list(self._assembly_records)
+
+        if not records:
+            return {
+                "avg_elapsed_ms": 0.0,
+                "overflow_count": 0,
+                "total_assemblies": 0,
+                "avg_token_usage_ratio": 0.0,
+            }
+
+        elapsed_values = [r["elapsed_ms"] for r in records]
+        overflow_count = sum(1 for r in records if r["overflow"])
+        usage_ratios = [
+            r["total_tokens"] / r["total_budget"]
+            for r in records if r["total_budget"] > 0
+        ]
+
+        return {
+            "avg_elapsed_ms": sum(elapsed_values) / len(elapsed_values),
+            "overflow_count": overflow_count,
+            "total_assemblies": len(records),
+            "avg_token_usage_ratio": sum(usage_ratios) / len(usage_ratios) if usage_ratios else 0.0,
+        }
+
+    # ------------------------------------------------------------------
     # Summary & Reset
     # ------------------------------------------------------------------
 
@@ -262,8 +442,10 @@ class MemoryMetrics:
 
         Returns:
             Dict containing hit_stats, freshness_distribution,
-            compression_stats, average_profile_completeness, and
-            tracked_users_count.
+            compression_stats, average_profile_completeness,
+            tracked_users_count, memory_hit_rate,
+            injection_token_ratio_stats, llm_reference_rate,
+            assembly_stats.
         """
         return {
             "hit_stats": self.get_hit_stats(),
@@ -271,6 +453,10 @@ class MemoryMetrics:
             "compression_stats": self.get_compression_stats(),
             "average_profile_completeness": self.get_average_profile_completeness(),
             "tracked_users_count": len(self._profile_completeness),
+            "memory_hit_rate": self.get_memory_hit_rate(),
+            "injection_token_ratio_stats": self.get_injection_token_ratio_stats(),
+            "llm_reference_rate": self.get_llm_reference_rate(),
+            "assembly_stats": self.get_assembly_stats(),
         }
 
     def reset(self) -> None:
@@ -281,6 +467,12 @@ class MemoryMetrics:
             self._access_times.clear()
             self._compression_records.clear()
             self._profile_completeness.clear()
+            self._memory_hit_count = 0
+            self._memory_miss_count = 0
+            self._injection_ratio_records.clear()
+            self._llm_response_count = 0
+            self._llm_referenced_count = 0
+            self._assembly_records.clear()
 
 
 # Global singleton

@@ -102,5 +102,57 @@ class Settings(BaseSettings):
     tool_call_show_data_source: bool = True
     tool_call_show_result_summary: bool = True
 
+    # ── 记忆架构配置 ──
+    # 总开关
+    memory_enabled: bool = True
+
+    # 对话窗口
+    memory_window_size: int = 4
+    memory_max_context_tokens: int = 128000
+
+    # 压缩与分片阈值
+    memory_compress_threshold: float = 0.80
+    memory_shard_threshold: float = 0.80
+    memory_context_compress_threshold: float = 0.70
+    memory_target_compress_ratio: float = 0.25
+    memory_corrective_compress_interval: int = 20
+
+    # 上下文压力阈值
+    memory_pressure_warning: float = 0.60
+    memory_pressure_critical: float = 0.80
+    memory_pressure_full: float = 1.00
+
+    # TTL 配置（秒）
+    memory_short_term_ttl: int = 3600
+    memory_session_summary_ttl: int = 86400
+    memory_session_summary_db_ttl: int = 604800
+    memory_profile_redis_ttl: int = 3600
+
+    # 记忆检索
+    memory_search_top_k: int = 10
+    memory_search_min_similarity: float = 0.75
+    memory_hybrid_alpha: float = 0.5
+    memory_hybrid_beta: float = 0.3
+    memory_hybrid_gamma: float = 0.2
+
+    # 上下文组装 Token 预算分配
+    memory_assemble_system_ratio: float = 0.30
+    memory_assemble_profile_ratio: float = 0.30
+    memory_assemble_episodic_ratio: float = 0.30
+    memory_assemble_buffer_ratio: float = 0.10
+    memory_assemble_token_budget: int = 4096
+
+    # L0 缓存
+    memory_l0_max_size: int = 256
+
+    # 熔断器
+    memory_cb_failure_threshold: int = 5
+    memory_cb_timeout_seconds: int = 60
+    memory_cb_half_open_limit: int = 3
+
+    # A/B 测试框架
+    memory_ab_enabled: bool = False
+    memory_ab_group: str = ""  # control | experiment
+
 
 settings = Settings()

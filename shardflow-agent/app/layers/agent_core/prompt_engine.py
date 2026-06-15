@@ -334,10 +334,20 @@ class PromptEngine:
         static_prefix, _ = self._build_static_think_prefix()
 
         # === 动态部分 ===
+        # 4A-05/2A-06: 注入 profile_context 和 episodic_context
+        profile_context = state.get("profile_context", "")
+        episodic_context = state.get("episodic_context", "")
+
         dynamic_part = (
             f"\n\n【任务目标】\n{task_goal}\n\n"
             f"【任务类型】{task_type}\n\n"
             f"【已知上下文】\n{context_shard_info}\n\n"
+        )
+        if profile_context:
+            dynamic_part += f"【用户画像】\n{profile_context}\n\n"
+        if episodic_context:
+            dynamic_part += f"【历史情景记忆】\n{episodic_context}\n\n"
+        dynamic_part += (
             f"【当前进度】\n"
             f"已完成 {completed_steps} 步，共约 {total_estimated_steps} 步\n"
             f"执行状态: {execution_summary}\n\n"

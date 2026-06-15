@@ -70,7 +70,7 @@ public class SessionStateSummaryServiceImpl implements SessionStateSummaryServic
             return Optional.of(cached);
         }
 
-        // Fall back to MySQL
+        // Fall back to PostgreSQL
         SessionStateSummaryEntity entity = repository.selectOne(
                 new LambdaQueryWrapper<SessionStateSummaryEntity>()
                         .eq(SessionStateSummaryEntity::getUserId, userId)
@@ -227,6 +227,7 @@ public class SessionStateSummaryServiceImpl implements SessionStateSummaryServic
         entity.setSessionSeq(request.getSessionSeq() != null ? request.getSessionSeq() : 1);
         entity.setTaskType(request.getTaskType());
         entity.setTaskGoal(request.getTaskGoal());
+        entity.setCompressedHistory(request.getCompressedHistory());
         entity.setKnowledgeState(toJson(request.getKnowledgeState()));
         entity.setUserContext(toJson(request.getUserContext()));
         entity.setExecutionState(toJson(request.getExecutionState()));
@@ -239,6 +240,7 @@ public class SessionStateSummaryServiceImpl implements SessionStateSummaryServic
         if (request.getTaskType() != null) entity.setTaskType(request.getTaskType());
         if (request.getTaskGoal() != null) entity.setTaskGoal(request.getTaskGoal());
         if (request.getSessionSeq() != null) entity.setSessionSeq(request.getSessionSeq());
+        if (request.getCompressedHistory() != null) entity.setCompressedHistory(request.getCompressedHistory());
         if (request.getKnowledgeState() != null) entity.setKnowledgeState(toJson(request.getKnowledgeState()));
         if (request.getUserContext() != null) entity.setUserContext(toJson(request.getUserContext()));
         if (request.getExecutionState() != null) entity.setExecutionState(toJson(request.getExecutionState()));

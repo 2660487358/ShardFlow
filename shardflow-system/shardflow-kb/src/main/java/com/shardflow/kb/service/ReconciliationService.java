@@ -23,11 +23,11 @@ public class ReconciliationService {
 
     /**
      * Daily reconciliation at 2:00 AM.
-     * Compares MySQL doc_count/chunk_count with Milvus actual data.
+     * Compares PostgreSQL doc_count/chunk_count with Milvus actual data.
      */
     @Scheduled(cron = "0 0 2 * * ?")
     public void scheduledReconciliation() {
-        log.info("Starting daily Milvus-MySQL reconciliation...");
+        log.info("Starting daily Milvus-PostgreSQL reconciliation...");
         List<KbCollectionEntity> activeColls = collectionRepo.selectList(
             new LambdaQueryWrapper<KbCollectionEntity>()
                 .eq(KbCollectionEntity::getStatus, "ACTIVE")
@@ -44,17 +44,17 @@ public class ReconciliationService {
                 continue;
             }
 
-            long mysqlDoc = coll.getDocCount() != null ? coll.getDocCount() : 0;
-            long mysqlChunk = coll.getChunkCount() != null ? coll.getChunkCount() : 0;
+            long pgDoc = coll.getDocCount() != null ? coll.getDocCount() : 0;
+            long pgChunk = coll.getChunkCount() != null ? coll.getChunkCount() : 0;
 
-            double docDiff = mysqlDoc > 0 ? Math.abs(milvusDocCount - mysqlDoc) / (double) mysqlDoc : 0;
-            double chunkDiff = mysqlChunk > 0 ? Math.abs(milvusChunkCount - mysqlChunk) / (double) mysqlChunk : 0;
+            double docDiff = pgDoc > 0 ? Math.abs(milvusDocCount - pgDoc) / (double) pgDoc : 0;
+            double chunkDiff = pgChunk > 0 ? Math.abs(milvusChunkCount - pgChunk) / (double) pgChunk : 0;
 
             if (docDiff > 0.05 || chunkDiff > 0.05) {
                 mismatchCount++;
-                log.warn("RECONCILE MISMATCH: kb={} name={} mysql:[docs={}, chunks={}] milvus:[docs={}, chunks={}]",
+                log.warn("RECONCILE MISMATCH: kb={} name={} pg:[docs={}, chunks={}] milvus:[docs={}, chunks={}]",
                     coll.getCollectionCode(), coll.getName(),
-                    mysqlDoc, mysqlChunk,
+                    pgDoc, pgChunk,
                     milvusDocCount, milvusChunkCount);
             }
         }

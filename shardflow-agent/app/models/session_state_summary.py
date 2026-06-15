@@ -49,6 +49,7 @@ class SessionStateSummary(BaseModel):
     session_seq: int = 1               # Which session this summary belongs to
     task_type: str = ""                # research|code_analysis|bug_investigation|...
     task_goal: str = ""
+    compressed_history: str = ""       # Per spec 6.2: Natural language version of concept summary (子层A context_summary)
     knowledge_state: KnowledgeState = Field(default_factory=KnowledgeState)
     user_context: UserContext = Field(default_factory=UserContext)
     execution_state: ExecutionState = Field(default_factory=ExecutionState)

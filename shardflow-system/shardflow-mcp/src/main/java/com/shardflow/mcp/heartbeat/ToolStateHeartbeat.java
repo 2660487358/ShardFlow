@@ -20,7 +20,7 @@ import java.util.Map;
 /**
  * Java 端心跳定时器.
  * 每 10s 定时 HSET Hash + EXPIRE 刷新 TTL，维持 Key 存活 (FR-HEALTH-005).
- * 同时检测 Hash Key 是否意外过期，若不存在则从 MySQL 重建.
+ * 同时检测 Hash Key 是否意外过期，若不存在则从 PostgreSQL 重建.
  */
 @Slf4j
 @Component
@@ -33,7 +33,7 @@ public class ToolStateHeartbeat {
 
     /**
      * 心跳定时器：每 10s 刷新所有用户的 Hash TTL.
-     * 若 Hash Key 不存在（被删除或 Redis 重启），从 MySQL 重建.
+     * 若 Hash Key 不存在（被删除或 Redis 重启），从 PostgreSQL 重建.
      */
     @Scheduled(fixedRate = McpRedisConstants.HEARTBEAT_INTERVAL_MS, initialDelay = 5000)
     public void heartbeat() {
@@ -60,7 +60,7 @@ public class ToolStateHeartbeat {
                 // 检查 Hash Key 是否存在，不存在则重建
                 Boolean exists = redisTemplate.hasKey(hashKey);
                 if (exists == null || !exists) {
-                    log.info("Hash key {} not found, rebuilding from MySQL", hashKey);
+                    log.info("Hash key {} not found, rebuilding from PostgreSQL", hashKey);
                     rebuildHash(hashKey, tools);
                 } else {
                     // 仅刷新 TTL
@@ -73,7 +73,7 @@ public class ToolStateHeartbeat {
     }
 
     /**
-     * 从 MySQL 重建 Hash 状态快照.
+     * 从 PostgreSQL 重建 Hash 状态快照.
      */
     private void rebuildHash(String hashKey, List<McpToolEntity> tools) {
         try {
