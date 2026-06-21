@@ -34,6 +34,9 @@ Thumbs.db
 # ===== Docker =====
 docker/certs/
 
+# ===== Test Reports =====
+e2e-report/
+
 # ===== Misc =====
 .superpowers/
 .codebuddy/
