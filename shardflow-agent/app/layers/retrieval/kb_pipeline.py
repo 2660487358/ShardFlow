@@ -339,6 +339,14 @@ async def process_document(
         _notify("EMBEDDING")
         vector_store = get_vector_store(collection_name)
 
+        # S3.6: RAG 主权对齐断言 — Python 独占 Milvus upsert (C-4.10, C-4.15)
+        # 确保 vector_store 是 MilvusVectorStore，防止误用其他后端破坏数据主权
+        assert isinstance(vector_store, MilvusVectorStore), (
+            "S3.6 RAG sovereignty violation: vector_store must be MilvusVectorStore "
+            "(Python exclusive Milvus upsert per C-4.10/C-4.15). "
+            f"Got: {type(vector_store).__name__}"
+        )
+
         # Step 4: Set up ingestion pipeline
         pipeline = IngestionPipeline(
             transformations=[
@@ -348,7 +356,7 @@ async def process_document(
             vector_store=vector_store,
         )
 
-        # Step 5: Run pipeline
+        # Step 5: Run pipeline — Python 独占 LlamaIndex split + Embedding + Milvus upsert
         import asyncio
         nodes = await asyncio.to_thread(pipeline.run, documents=docs)
 

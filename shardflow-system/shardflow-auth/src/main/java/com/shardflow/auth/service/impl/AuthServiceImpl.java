@@ -1,7 +1,7 @@
 package com.shardflow.auth.service.impl;
 
-import cn.dev33.satoken.stp.SaLoginModel;
 import cn.dev33.satoken.stp.StpUtil;
+import cn.dev33.satoken.stp.parameter.SaLoginParameter;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shardflow.auth.repository.UserRepository;
 import com.shardflow.auth.service.AuthService;
@@ -47,9 +47,9 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 仅创建新的 access token，refresh token 保持不变（7 天内有效）
-        StpUtil.login(loginId, new SaLoginModel()
+        StpUtil.login(loginId, new SaLoginParameter()
             .setTimeout(ACCESS_TOKEN_TIMEOUT)
-            .setDevice("access"));
+            .setDeviceType("access"));
         String newAccessToken = StpUtil.getTokenValue();
 
         Map<String, Object> result = new HashMap<>();
@@ -99,15 +99,15 @@ public class AuthServiceImpl implements AuthService {
      */
     private Map<String, Object> buildAuthResult(String userId, String role) {
         // 创建 access token（短期）
-        StpUtil.login(userId, new SaLoginModel()
+        StpUtil.login(userId, new SaLoginParameter()
             .setTimeout(ACCESS_TOKEN_TIMEOUT)
-            .setDevice("access"));
+            .setDeviceType("access"));
         String accessToken = StpUtil.getTokenValue();
 
         // 创建 refresh token（长期）
-        StpUtil.login(userId, new SaLoginModel()
+        StpUtil.login(userId, new SaLoginParameter()
             .setTimeout(REFRESH_TOKEN_TIMEOUT)
-            .setDevice("refresh"));
+            .setDeviceType("refresh"));
         String refreshToken = StpUtil.getTokenValue();
 
         Map<String, Object> result = new HashMap<>();

@@ -1,7 +1,7 @@
 package com.shardflow.mcp.builtin;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.entity.McpToolEntity;
 import com.shardflow.mcp.publisher.ToolStatePublisher;
 import com.shardflow.mcp.repository.McpToolRepository;

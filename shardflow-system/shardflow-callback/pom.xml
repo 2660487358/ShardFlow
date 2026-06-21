@@ -15,5 +15,6 @@
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-profile</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-memory</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-strategy</artifactId></dependency>
+        <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-kb</artifactId></dependency>
     </dependencies>
 </project>

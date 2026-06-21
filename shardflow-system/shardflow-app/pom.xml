@@ -25,10 +25,10 @@
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-profile</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-memory</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-strategy</artifactId></dependency>
-        <!-- Sa-Token 整合 Redis（使用 Jackson 序列化） — 唯一需要在此声明的第三方依赖 -->
+        <!-- Sa-Token 整合 Redis（使用 RedisTemplate，兼容 Spring Boot 4 / Jackson 3） -->
         <dependency>
             <groupId>cn.dev33</groupId>
-            <artifactId>sa-token-redis-jackson</artifactId>
+            <artifactId>sa-token-redis-template</artifactId>
             <version>${sa-token.version}</version>
         </dependency>
         <!-- Spring Boot Actuator + Micrometer Prometheus -->

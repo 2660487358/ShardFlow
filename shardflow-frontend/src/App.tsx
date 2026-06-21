@@ -14,6 +14,7 @@ import TaskPage from './pages/TaskPage';
 import NotFoundPage from './pages/NotFoundPage';
 import KnowledgePage from './pages/KnowledgePage';
 import KnowledgeDetailPage from './pages/KnowledgeDetailPage';
+import SettingsPage from './pages/SettingsPage';
 
 const fontFamily = "'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', 'FangSong', serif";
 
@@ -109,6 +110,7 @@ export default function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="kb" element={<KnowledgePage />} />
             <Route path="kb/:id" element={<KnowledgeDetailPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

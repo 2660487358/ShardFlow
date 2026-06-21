@@ -22,6 +22,7 @@ SSE_EVENT_TYPES = {
     "context_pressure": "context_pressure",
     "session_switching": "session_switching",
     "memory_context": "memory_context",
+    "session_info": "session_info",
 }
 
 # 兼容过渡：同时发送新旧事件类型，2周过渡期后移除
@@ -54,6 +55,18 @@ class ResponseFormatter:
 
     def format_intent(self, intent: str, confidence: float) -> bytes:
         return self.format_event("intent", {"intent": intent, "confidence": confidence})
+
+    def format_session_info(self, session_id: str, task_id: str = "") -> bytes:
+        """Format session_info event emitted at stream start.
+
+        Ensures the frontend receives session_id/task_id as early as possible
+        so subsequent requests can reuse the same session.
+        """
+        return self.format_event("session_info", {
+            "session_id": session_id,
+            "task_id": task_id,
+            "event": "session_initialized",
+        })
 
     def format_think(self, reasoning: str) -> bytes:
         return self.format_event("think", {"reasoning": reasoning})
@@ -158,7 +171,13 @@ class ResponseFormatter:
 response_formatter = ResponseFormatter()
 
 
-async def stream_react_events(state: dict[str, Any], request: Request | None = None, intent_confidence: float = 0.5) -> AsyncIterator[bytes]:
+async def stream_react_events(
+    state: dict[str, Any],
+    request: Request | None = None,
+    intent_confidence: float = 0.5,
+    session_id: str = "",
+    task_id: str = "",
+) -> AsyncIterator[bytes]:
     """Stream ReAct graph events as SSE, with real-time LLM token delivery.
 
     Architecture: single-queue, single-consumer.
@@ -169,6 +188,14 @@ async def stream_react_events(state: dict[str, Any], request: Request | None = N
     This guarantees FIFO ordering with no race conditions or interleaving.
     """
     formatter = response_formatter
+
+    # 首事件：会话信息，确保前端第一时间拿到 session_id
+    # 空 session_id 时不 yield 该事件，避免污染 SSE 流
+    if session_id:
+        yield formatter.format_session_info(
+            session_id,
+            task_id or state.get("task_id", ""),
+        )
 
     intent = state.get("intent", "general_qa")
     yield formatter.format_intent(intent, intent_confidence)

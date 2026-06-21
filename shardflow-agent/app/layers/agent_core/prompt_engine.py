@@ -1,6 +1,6 @@
 import hashlib
-import time
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -343,6 +343,33 @@ class PromptEngine:
             f"【任务类型】{task_type}\n\n"
             f"【已知上下文】\n{context_shard_info}\n\n"
         )
+
+        # FIX-3: 注入近期对话历史 (FR-WM-001, FR-RR-005)
+        _session_id = state.get("session_id", "")
+        if _session_id:
+            try:
+                from app.layers.agent_core.working_memory_manager import working_memory_manager
+                _wm = working_memory_manager.get_session(_session_id)
+                if _wm and _wm.messages:
+                    _recent_msgs = working_memory_manager.get_messages_as_dicts(_session_id)[-8:]  # 最近4轮（8条消息）
+                    _history_lines = []
+                    for m in _recent_msgs:
+                        role_label = "用户" if m["role"] == "user" else "助手"
+                        _history_lines.append(f"[{role_label}] {m['content'][:300]}")
+                    _history_text = "\n".join(_history_lines)
+                    dynamic_part += f"【近期对话历史】\n{_history_text}\n\n"
+
+                    # AC-10: 注入 L2 概念摘要（阶段3 P1）
+                    # 当发生过压缩时，将 context_summary 作为早期对话的摘要注入
+                    if _wm.is_compressed and _wm.context_summary:
+                        dynamic_part += f"【早期对话摘要】\n{_wm.context_summary}\n\n"
+                        # 注入结构化摘要的关键实体（提升关键实体保留率，AC-17）
+                        if _wm.structured_summary.entities:
+                            _entities_text = "、".join(_wm.structured_summary.entities[:20])
+                            dynamic_part += f"【关键实体】\n{_entities_text}\n\n"
+            except Exception:
+                pass  # 记忆注入失败不阻塞主流程
+
         if profile_context:
             dynamic_part += f"【用户画像】\n{profile_context}\n\n"
         if episodic_context:

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, Task, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult, StreamingPhase } from '@/types';
+import type { ChatMessage, Task, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult, StreamingPhase, UserProfile } from '@/types';
 
 // Lazy API imports to avoid circular deps (client.ts imports useStore)
 const api = {
@@ -11,6 +11,27 @@ const api = {
   addAgent: (p: Record<string, unknown>) => import('@/api/client').then(m => m.addAgentConfigApi(p)),
   updateAgent: (id: string, p: Record<string, unknown>) => import('@/api/client').then(m => m.updateAgentConfigApi(id, p)),
   deleteAgent: (id: string) => import('@/api/client').then(m => m.deleteAgentConfigApi(id)),
+  fetchProfile: (userId: string) => import('@/api/client').then(m => m.fetchProfile(userId)),
+};
+
+// T4.1: Tab 级存储工具 —— 优先使用 sessionStorage（Tab 隔离），
+// sessionStorage 不可用时（如隐私模式）fallback 到 localStorage
+const tabStorage = {
+  getItem(key: string): string | null {
+    try {
+      const v = sessionStorage.getItem(key);
+      if (v !== null) return v;
+    } catch { /* sessionStorage 不可用 */ }
+    try { return localStorage.getItem(key); } catch { return null; }
+  },
+  setItem(key: string, value: string): void {
+    try { sessionStorage.setItem(key, value); return; } catch { /* fallthrough */ }
+    try { localStorage.setItem(key, value); } catch { /* 静默降级 */ }
+  },
+  removeItem(key: string): void {
+    try { sessionStorage.removeItem(key); } catch { /* fallthrough */ }
+    try { localStorage.removeItem(key); } catch { /* 静默降级 */ }
+  },
 };
 
 interface McpTool {
@@ -56,6 +77,13 @@ interface AppState {
   activeSessionId: string | null;
   setTasks: (tasks: Task[]) => void;
   setActiveTask: (taskId: string, sessionId?: string) => void;
+  clearActiveTask: () => void;
+
+  // T4.5: 用户画像 —— 跨 Tab 共享，存储在 localStorage
+  userProfile: UserProfile | null;
+  profileLoading: boolean;
+  setUserProfile: (profile: UserProfile | null) => void;
+  syncUserProfile: (userId: string) => Promise<void>;
 
   // Auth
   token: string | null;
@@ -140,10 +168,61 @@ export const useStore = create<AppState>((set) => ({
 
   // Task
   tasks: [],
-  activeTaskId: null,
-  activeSessionId: null,
+  // T4.1: 初始化时从 sessionStorage 读取 activeTaskId/activeSessionId（Tab 隔离）
+  // sessionStorage 不可用时 fallback 到 localStorage（AC-21）
+  activeTaskId: (() => {
+    return tabStorage.getItem('shardflow_active_task_id');
+  })(),
+  activeSessionId: (() => {
+    return tabStorage.getItem('shardflow_active_session_id');
+  })(),
   setTasks: (tasks) => set({ tasks }),
-  setActiveTask: (taskId, sessionId) => set({ activeTaskId: taskId, activeSessionId: sessionId || null }),
+  // T4.1: setActiveTask 同步写入 sessionStorage，保证刷新后可恢复且 Tab 隔离
+  setActiveTask: (taskId, sessionId) => {
+    tabStorage.setItem('shardflow_active_task_id', taskId);
+    if (sessionId) tabStorage.setItem('shardflow_active_session_id', sessionId);
+    set({ activeTaskId: taskId, activeSessionId: sessionId || null });
+  },
+  clearActiveTask: () => {
+    tabStorage.removeItem('shardflow_active_task_id');
+    tabStorage.removeItem('shardflow_active_session_id');
+    set({ activeTaskId: null, activeSessionId: null });
+  },
+
+  // T4.5: 用户画像 —— 从 localStorage 读取（跨 Tab 共享），初始化时为 null
+  userProfile: (() => {
+    try {
+      const raw = localStorage.getItem('shardflow_user_profile');
+      return raw ? JSON.parse(raw) as UserProfile : null;
+    } catch { return null; }
+  })(),
+  profileLoading: false,
+  setUserProfile: (profile) => {
+    try {
+      if (profile) {
+        localStorage.setItem('shardflow_user_profile', JSON.stringify(profile));
+      } else {
+        localStorage.removeItem('shardflow_user_profile');
+      }
+    } catch { /* localStorage 不可用时静默降级 */ }
+    set({ userProfile: profile });
+  },
+  syncUserProfile: async (userId) => {
+    if (!userId) return;
+    set({ profileLoading: true });
+    try {
+      const data = await api.fetchProfile(userId);
+      if (data && typeof data === 'object') {
+        set({ userProfile: data as UserProfile, profileLoading: false });
+        try { localStorage.setItem('shardflow_user_profile', JSON.stringify(data)); } catch {}
+      } else {
+        set({ profileLoading: false });
+      }
+    } catch {
+      // API 不可用时保留 localStorage 缓存作为降级
+      set({ profileLoading: false });
+    }
+  },
 
   // Auth — validate stored token looks like JWT before accepting it
   token: (() => {
@@ -184,7 +263,11 @@ export const useStore = create<AppState>((set) => ({
     localStorage.removeItem('shardflow_agents');
     localStorage.removeItem('shardflow_active_agent');
     localStorage.removeItem('shardflow_selected_model');
-    set({ token: null, userId: '', customModels: [], agentConfigs: [], activeAgentId: null });
+    localStorage.removeItem('shardflow_user_profile');
+    // T4.1: 同时清理 sessionStorage 中的 Tab 隔离数据
+    tabStorage.removeItem('shardflow_active_task_id');
+    tabStorage.removeItem('shardflow_active_session_id');
+    set({ token: null, userId: '', customModels: [], agentConfigs: [], activeAgentId: null, userProfile: null, activeTaskId: null, activeSessionId: null });
     // 通知后端注销双 token
     if (token) {
       import('@/api/client').then(({ default: api }) => {

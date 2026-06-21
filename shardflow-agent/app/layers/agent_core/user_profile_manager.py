@@ -481,19 +481,108 @@ class UserProfileManager:
     # Profile evolution: auto-update from new semantic facts
     # ------------------------------------------------------------------
 
-    async def evolve_profile(self, user_id: str) -> UserProfile | None:
+    async def evolve_profile(self, user_id: str,
+                             patch: dict[str, Any] | None = None) -> UserProfile | None:
         """Evolve user profile by incorporating new semantic facts.
 
+        S5.2: Fixed signature to accept patch parameter from
+        SemanticMemoryManager.apply_profile_patch().
+
         Called after semantic extraction to update the profile with new facts.
-        Only rebuilds if there are new facts since last profile build.
+        If a patch is provided, applies the patch incrementally; otherwise
+        rebuilds the profile from all semantic facts.
+
+        Args:
+            user_id: User identifier
+            patch: Optional profile patch from generate_profile_patch().
+                   When provided, applies incremental updates from the patch
+                   instead of full rebuild.
+
+        Returns:
+            Updated UserProfile, or None if update failed.
         """
         profile = await self.load_profile(user_id)
         if profile is None:
             # No existing profile, build from scratch
             return await self.build_profile(user_id)
 
-        # Rebuild profile from all facts (includes new ones)
+        if patch is not None:
+            # S5.2: Apply incremental patch instead of full rebuild
+            return await self._apply_patch(user_id, profile, patch)
+
+        # No patch provided, rebuild from all facts
         return await self.build_profile(user_id)
+
+    async def _apply_patch(self, user_id: str, profile: UserProfile,
+                           patch: dict[str, Any]) -> UserProfile:
+        """S5.2: Apply a semantic patch to the profile incrementally.
+
+        Merges patch fields (expertise_level, communication_style, preferences,
+        profile_attributes, frequent_tools) into the existing profile without
+        full rebuild.
+        """
+        pref = profile.preference
+        habits = profile.interaction_habits
+
+        # Apply expertise level
+        expertise = patch.get("expertise_level", "")
+        if expertise and not pref.expertise:
+            pref.expertise = expertise
+        elif expertise and pref.expertise:
+            # Only update if patch has higher confidence (explicit confirmation)
+            pref.expertise = expertise
+
+        # Apply communication style
+        comm_style = patch.get("communication_style", "")
+        if comm_style and not pref.communication_style:
+            pref.communication_style = comm_style
+        elif comm_style and pref.communication_style:
+            pref.communication_style = comm_style
+
+        # Apply preferences as interests
+        for pref_item in patch.get("preferences", []):
+            value = pref_item.get("value", "")
+            if value and value not in pref.interests:
+                pref.interests.append(value)
+
+        # Apply profile attributes
+        for attr_item in patch.get("profile_attributes", []):
+            value = attr_item.get("value", "")
+            if value and value not in pref.interests:
+                pref.interests.append(value)
+
+        # Apply frequent tools as interests and common tasks
+        for tool in patch.get("frequent_tools", []):
+            tool_label = f"常用工具:{tool}"
+            if tool_label not in pref.interests:
+                pref.interests.append(tool_label)
+
+            # Map tool to common task
+            task_map = {
+                "web_search": "technology_research",
+                "code_analysis": "code_analysis",
+                "document_read": "document_review",
+            }
+            task = task_map.get(tool)
+            if task and task not in habits.common_tasks:
+                habits.common_tasks.append(task)
+
+        # Increment version and update timestamp
+        profile.profile_version += 1
+        profile.updated_at = datetime.now(timezone.utc)
+
+        # Persist to all tiers
+        await self._persist_profile(user_id, profile)
+
+        # Record profile completeness metrics
+        self._record_profile_completeness(user_id, profile)
+
+        logger.info(
+            "S5.2: Applied profile patch for user %s: version=%d, patch_facts=%d",
+            user_id, profile.profile_version, patch.get("fact_count", 0),
+        )
+
+        return profile
 
     # ------------------------------------------------------------------
     # Cache management

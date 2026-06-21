@@ -359,6 +359,7 @@ class MemorySearchEngine:
         results = results[:top_k]
 
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
+
         logger.info(
             "Hybrid search for user %s: %d results in %dms (fusion: alpha=%.1f, beta=%.1f, gamma=%.1f)",
             user_id, len(results), elapsed_ms,

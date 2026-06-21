@@ -9,7 +9,21 @@ Manages the complete lifecycle of short-term (working) memory:
 
 Storage: Python local memory (L0) + Redis (L1) for SHORT_TERM type.
 No L2 persistence — ephemeral by design.
+
+S3.2: 短期记忆分层落地
+- L0: in-memory dict (self._sessions) — sub-ms access
+- L1: Redis List `session:{session_id}:window` — Pipeline LPUSH+LTRIM+EXPIRE (C-8.5)
+- 主权端: Python 单端写入，Java 禁止读取（C-5.12）
+- TTL: 24h（会话生命周期）
+
+阶段3 P1: L2 概念摘要增强
+- 增量压缩：溢出消息数 >= memory_compress_batch 时触发（T3.1/T3.2）
+- 校正压缩：每 memory_corrective_compress_interval 轮触发一次（T3.3）
+- 压缩异步执行，不阻塞首 token（AC-16）
+- 使用 app/prompts/memory_compress_prompt.py 版本化模板（T3.4）
 """
+import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -20,8 +34,17 @@ from pydantic import BaseModel, Field
 from app.layers.agent_core.context_manager import context_manager
 from app.layers.agent_core.memory_orchestrator import memory_orchestrator
 from app.models.memory import MemoryType
+from app.prompts.memory_compress_prompt import (
+    build_corrective_prompt,
+    build_incremental_prompt,
+    parse_compress_response,
+)
 
 logger = logging.getLogger(__name__)
+
+# S3.2: Redis window constants per Redis-Key规范文档 §3.1
+SESSION_WINDOW_TTL_SECONDS = 86400  # 24h — session lifecycle
+SESSION_WINDOW_KEY_PATTERN = "session:{session_id}:window"
 
 
 # ---------------------------------------------------------------------------
@@ -47,10 +70,13 @@ class StructuredSummary(BaseModel):
     """FR-WM-004: Structured version of concept summary (子层B).
 
     Maintained alongside context_summary for direct use in snapshot assembly.
+    阶段3 P1: 新增 entities / intent 字段，对齐 memory_compress_prompt 输出。
     """
     confirmed: list[str] = Field(default_factory=list)
     excluded: list[str] = Field(default_factory=list)
     pending: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+    intent: str = ""
 
 
 class WorkingMemoryData(BaseModel):
@@ -95,9 +121,49 @@ class WorkingMemoryManager:
         from app.config import settings
         return settings.memory_target_compress_ratio
 
+    @property
+    def COMPRESS_BATCH(self) -> int:
+        """T3.1: 溢出批量压缩阈值，默认 4。"""
+        from app.config import settings
+        return getattr(settings, "memory_compress_batch", 4)
+
+    @property
+    def COMPRESS_ASYNC(self) -> bool:
+        """T3.1: 压缩异步执行开关，默认 True。"""
+        from app.config import settings
+        return getattr(settings, "memory_compress_async", True)
+
     def __init__(self) -> None:
         # L0 cache: session_id -> WorkingMemoryData
         self._sessions: dict[str, WorkingMemoryData] = {}
+        # T3.1: 会话级压缩锁，保证同一 session 串行压缩，避免竞态
+        self._compress_locks: dict[str, asyncio.Lock] = {}
+        # T3.1: 正在压缩的 session 集合，防止重复触发
+        self._compressing: set[str] = set()
+
+    # ------------------------------------------------------------------
+    # T5.1: 事件循环安全调度工具
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_schedule(coro: Any, *, tag: str = "") -> None:
+        """T5.1: 安全调度协程，无运行中事件循环时静默跳过。
+
+        解决 asyncio.ensure_future 在无事件循环时的 DeprecationWarning。
+        fire-and-forget 语义：L1 推送/压缩均为非关键路径，无循环时跳过不影响主流程。
+
+        Args:
+            coro: 待调度的协程对象
+            tag: 日志标签（如 "L1 push" / "compress"），便于排查
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            # 无运行中事件循环（同步上下文），fire-and-forget 跳过
+            logger.debug("No running event loop, skip %s scheduling", tag or "async task")
+            # 关闭未调度的协程，避免 "coroutine was never awaited" 告警
+            coro.close()
 
     # ------------------------------------------------------------------
     # FR-WM-001: Session context maintenance
@@ -126,7 +192,11 @@ class WorkingMemoryManager:
 
     def add_message(self, session_id: str, role: str, content: str,
                     metadata: dict[str, Any] | None = None) -> MessageItem:
-        """Add a message to the session's dialogue history."""
+        """Add a message to the session's dialogue history.
+
+        阶段3 P1 (T3.1): 当消息数超过窗口大小且溢出量达到 batch 阈值时，
+        异步触发增量压缩，不阻塞用户首 token (AC-16)。
+        """
         wm = self._sessions.get(session_id)
         if wm is None:
             raise ValueError(f"Session not found: {session_id}")
@@ -137,7 +207,14 @@ class WorkingMemoryManager:
         # Update token usage
         self._update_token_usage(wm)
 
-        # FR-WM-002: Check if compression is needed
+        # S3.2: Push to Redis L1 window (Pipeline LPUSH+LTRIM+EXPIRE, fire-and-forget)
+        # T5.1: 使用 _safe_schedule 替代 asyncio.ensure_future，避免无事件循环时的告警
+        self._safe_schedule(
+            self._push_to_window_l1(session_id, msg),
+            tag="L1 push",
+        )
+
+        # FR-WM-002: Check if token-based compression is needed (warning only)
         if wm.token_usage.usage_ratio >= self.COMPRESS_THRESHOLD:
             logger.warning(
                 "Context usage %.1f%% exceeds threshold %.0f%% for session %s",
@@ -146,7 +223,68 @@ class WorkingMemoryManager:
                 session_id,
             )
 
+        # T3.1: 消息数触发增量压缩（溢出量 >= batch 时触发）
+        self._maybe_trigger_compress(session_id, wm)
+
         return msg
+
+    # ------------------------------------------------------------------
+    # T3.1: 增量压缩触发逻辑
+    # ------------------------------------------------------------------
+
+    def _maybe_trigger_compress(self, session_id: str, wm: WorkingMemoryData) -> None:
+        """T3.1: 检查是否需要触发增量压缩.
+
+        触发条件：
+        1. 消息数 > memory_window_size（窗口溢出）
+        2. 溢出量 >= memory_compress_batch（达到批量阈值）
+        3. 当前 session 未在压缩中（避免重复触发）
+
+        压缩异步执行，不阻塞 add_message 返回（AC-16）。
+        """
+        from app.config import settings
+        window_size = settings.memory_window_size
+        overflow = len(wm.messages) - window_size
+        if overflow < self.COMPRESS_BATCH:
+            return
+        if session_id in self._compressing:
+            logger.debug("Session %s already compressing, skip trigger", session_id)
+            return
+
+        if self.COMPRESS_ASYNC:
+            # T3.1 + T5.1: 异步触发压缩，不阻塞首 token；使用 _safe_schedule 避免无事件循环告警
+            self._safe_schedule(
+                self._async_compress_wrapper(session_id),
+                tag="compress",
+            )
+            logger.info(
+                "Triggered async compress for session %s: messages=%d, overflow=%d, batch=%d",
+                session_id, len(wm.messages), overflow, self.COMPRESS_BATCH,
+            )
+        else:
+            # 同步模式：仅标记需要压缩，由调用方显式调用 compress_context
+            logger.debug("Async compress disabled, marked session %s for compression", session_id)
+
+    async def _async_compress_wrapper(self, session_id: str) -> None:
+        """T3.1: 异步压缩包装器，保证同一 session 串行执行.
+
+        使用会话级锁避免竞态（风险：压缩异步执行引入竞态）。
+        压缩失败时降级为硬窗口，不阻塞对话（AC-16 降级策略）。
+        """
+        if session_id in self._compressing:
+            return
+        self._compressing.add(session_id)
+        lock = self._compress_locks.setdefault(session_id, asyncio.Lock())
+        try:
+            async with lock:
+                await self.compress_context(session_id)
+        except Exception as e:
+            logger.error(
+                "Async compress failed for session %s, degrading to hard window: %s",
+                session_id, e,
+            )
+        finally:
+            self._compressing.discard(session_id)
 
     def push_intent(self, session_id: str, intent: str) -> None:
         """Push an intent onto the session's intent stack."""
@@ -219,32 +357,40 @@ class WorkingMemoryManager:
     async def compress_context(self, session_id: str) -> str:
         """Compress the session context using LLM summarization.
 
-        Strategy: Keep recent messages (last 4), summarize older ones.
-        Target compression ratio: 20-30% of original text.
+        阶段3 P1 (T3.2/T3.3): 增量压缩 + 校正压缩
+        - 增量压缩：溢出消息 + 已有摘要 → 更新后的双版本摘要
+        - 校正压缩：每 memory_corrective_compress_interval 轮触发一次，
+          将当前窗口 + 已有摘要一起过 LLM，防止增量误差累积
 
-        校正压缩机制 (3B-01):
-        当 compress_round_count > 0 且 compress_round_count % K == 0 时，
-        执行校正压缩（将当前窗口 + 已有概念摘要一起过 LLM），
-        产出校正后双版本替代累积版本，防止增量误差累积。
+        策略：保留最近 memory_window_size 条消息，压缩更早的消息。
+        目标压缩率：20-30%。
+
+        AC-16: 压缩异步执行（由 _async_compress_wrapper 调用），不阻塞首 token。
+        AC-18: 每 20 轮自动执行校正压缩。
         """
         wm = self._sessions.get(session_id)
         if wm is None:
             raise ValueError(f"Session not found: {session_id}")
 
-        if len(wm.messages) <= 6:
-            logger.info("Session %s has too few messages to compress, skipping", session_id)
+        from app.config import settings
+        keep_recent = settings.memory_window_size
+
+        # 消息数不足，跳过压缩
+        if len(wm.messages) <= keep_recent:
+            logger.info(
+                "Session %s has too few messages to compress (messages=%d, window=%d), skipping",
+                session_id, len(wm.messages), keep_recent,
+            )
             return wm.context_summary
 
         # Split: messages to summarize vs. keep
-        from app.config import settings
-        keep_recent = settings.memory_window_size
         messages_to_compress = wm.messages[:-keep_recent]
         recent_messages = wm.messages[-keep_recent:]
 
         if not messages_to_compress:
             return wm.context_summary
 
-        # 校正压缩判断：每 K 轮压缩触发一次校正
+        # T3.3: 校正压缩判断 — 每 K 轮触发一次（K 默认 20）
         corrective_interval = self._get_corrective_interval()
         should_corrective = (
             wm.compress_round_count > 0
@@ -252,69 +398,74 @@ class WorkingMemoryManager:
         )
 
         if should_corrective:
-            summary = await self._corrective_compress(wm, recent_messages)
+            # T3.3: 校正压缩 — 当前窗口 + 已有摘要一起过 LLM
+            compress_result = await self._corrective_compress(wm, recent_messages)
         else:
-            # 常规增量压缩
-            compression_prompt = self._build_compression_prompt(messages_to_compress, wm.context_summary)
-            summary = await self._call_llm_compress(compression_prompt)
+            # T3.2: 增量压缩 — 溢出消息 + 已有摘要
+            compress_result = await self._incremental_compress(
+                messages_to_compress, wm.context_summary,
+            )
 
-        # Update working memory
-        wm.context_summary = summary
-        wm.structured_summary = self._parse_structured_summary(summary)
+        # 更新 working memory
+        wm.context_summary = compress_result["natural_summary"]
+        wm.structured_summary = self._build_structured_summary(compress_result["structured_summary"])
         wm.messages = recent_messages
         wm.is_compressed = True
         wm.compress_round_count += 1
         self._update_token_usage(wm)
 
         logger.info(
-            "Context compressed for session %s: %d messages -> summary + %d recent messages (round=%d, corrective=%s)",
+            "Context compressed for session %s: %d messages -> summary + %d recent messages "
+            "(round=%d, corrective=%s)",
             session_id, len(messages_to_compress), len(recent_messages),
             wm.compress_round_count, should_corrective,
         )
 
-        # Persist compressed state to L1 (Redis)
+        # 持久化压缩后的状态到 L1 (Redis)
         await self._persist_to_l1(wm)
 
-        return summary
+        return wm.context_summary
+
+    async def _incremental_compress(
+        self,
+        messages_to_compress: list[MessageItem],
+        existing_summary: str,
+    ) -> dict[str, Any]:
+        """T3.2: 增量压缩 — 调用 LLM 生成自然语言摘要 + 结构化摘要 JSON.
+
+        输入：已有摘要 + 新增溢出消息
+        输出：{"natural_summary": str, "structured_summary": dict}
+        压缩失败时降级为硬窗口截断（AC-16 降级策略）。
+        """
+        prompt = build_incremental_prompt(messages_to_compress, existing_summary)
+        llm_output = await self._call_llm_compress(prompt)
+        return parse_compress_response(llm_output)
+
+    def _build_structured_summary(self, data: dict[str, Any]) -> StructuredSummary:
+        """T3.2: 从解析后的字典构建 StructuredSummary 模型."""
+        return StructuredSummary(
+            confirmed=list(data.get("confirmed", [])),
+            excluded=list(data.get("excluded", [])),
+            pending=list(data.get("pending", [])),
+            entities=list(data.get("entities", [])),
+            intent=str(data.get("intent", "")),
+        )
 
     def _build_compression_prompt(self, messages: list[MessageItem],
                                   existing_summary: str) -> str:
-        """Build the LLM prompt for context compression."""
-        conversation_text = "\n".join(
-            f"[{m.role}] {m.content[:500]}" for m in messages
-        )
-
-        prompt = (
-            "请将以下对话历史压缩为简洁的结构化摘要。要求：\n"
-            "1. 保留关键实体（人名、地名、时间、数值、技术术语）\n"
-            "2. 保留已确认的结论和已排除的方案\n"
-            "3. 保留待办事项和未解决问题\n"
-            "4. 去除寒暄、重复确认等低信息内容\n"
-            "5. 压缩率为原始文本的20-30%\n"
-            "6. 输出格式：\n"
-            "   - 已确认结论：...\n"
-            "   - 已排除方案：...\n"
-            "   - 待办事项：...\n"
-            "   - 关键实体：...\n"
-            "   - 当前意图：...\n"
-        )
-
-        if existing_summary:
-            prompt += f"\n已有摘要（请在此基础上更新）：\n{existing_summary}\n"
-
-        prompt += f"\n待压缩对话：\n{conversation_text}"
-
-        return prompt
+        """Build the LLM prompt for context compression (兼容旧调用，使用新模板)."""
+        return build_incremental_prompt(messages, existing_summary)
 
     async def _call_llm_compress(self, prompt: str) -> str:
         """Call LLM to generate a compression summary.
 
         Uses the ModelClientManager to make the actual LLM call.
-        Falls back to a simple truncation if LLM is unavailable.
+        Falls back to a simple truncation if LLM is unavailable (AC-16 降级).
         """
         try:
-            from app.layers.agent_core.model_client_manager import model_client_manager
             from app.layers.agent_core.llm_router import llm_router
+            from app.layers.agent_core.model_client_manager import model_client_manager
+            from app.prompts.memory_compress_prompt import SYSTEM_ROLE
 
             model_id = llm_router.MODEL_MAP.get("compress", "deepseek-chat")
             client, actual_model = await model_client_manager.get_client(model_id)
@@ -322,7 +473,7 @@ class WorkingMemoryManager:
             payload = {
                 "model": actual_model,
                 "messages": [
-                    {"role": "system", "content": "你是一个对话摘要专家，擅长提取关键信息并压缩冗余内容。"},
+                    {"role": "system", "content": SYSTEM_ROLE},
                     {"role": "user", "content": prompt},
                 ],
                 "max_tokens": 1024,
@@ -344,10 +495,13 @@ class WorkingMemoryManager:
         return self._fallback_compress(prompt)
 
     def _fallback_compress(self, text: str) -> str:
-        """Fallback compression: extract key lines when LLM is unavailable."""
+        """Fallback compression: extract key lines when LLM is unavailable.
+
+        返回旧式文本格式，由 parse_compress_response 的兜底解析器处理。
+        """
         lines = text.split("\n")
-        key_lines = [l for l in lines if any(
-            kw in l for kw in ["确认", "排除", "待办", "决定", "结论", "意图"]
+        key_lines = [line for line in lines if any(
+            kw in line for kw in ["确认", "排除", "待办", "决定", "结论", "意图", "实体"]
         )]
         if not key_lines:
             # Take first 20% of lines as summary
@@ -356,36 +510,16 @@ class WorkingMemoryManager:
         return "\n".join(key_lines)
 
     def _parse_structured_summary(self, summary_text: str) -> StructuredSummary:
-        """Parse a text summary into a StructuredSummary model.
+        """Parse a text summary into a StructuredSummary model (兼容旧调用).
 
-        Extracts confirmed/excluded/pending items from the compressed
-        summary text, keeping structured_summary in sync with context_summary.
+        阶段3 P1: 委托给 memory_compress_prompt.parse_compress_response，
+        支持新 JSON 格式和旧文本格式。
         """
-        confirmed: list[str] = []
-        excluded: list[str] = []
-        pending: list[str] = []
-
-        for line in summary_text.split("\n"):
-            line = line.strip().lstrip("- ").strip()
-            if not line:
-                continue
-            if line.startswith("已确认") or line.startswith("确认结论"):
-                content = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
-                if content:
-                    confirmed.append(content)
-            elif line.startswith("已排除") or line.startswith("排除方案"):
-                content = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
-                if content:
-                    excluded.append(content)
-            elif line.startswith("待办") or line.startswith("待深入"):
-                content = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip()
-                if content:
-                    pending.append(content)
-
-        return StructuredSummary(confirmed=confirmed, excluded=excluded, pending=pending)
+        result = parse_compress_response(summary_text)
+        return self._build_structured_summary(result["structured_summary"])
 
     # ------------------------------------------------------------------
-    # 3B: Corrective compression
+    # T3.3: Corrective compression
     # ------------------------------------------------------------------
 
     def _get_corrective_interval(self) -> int:
@@ -398,47 +532,25 @@ class WorkingMemoryManager:
 
     async def _corrective_compress(
         self, wm: WorkingMemoryData, recent_messages: list[MessageItem],
-    ) -> str:
-        """校正压缩：将当前窗口 + 已有概念摘要一起过 LLM。
+    ) -> dict[str, Any]:
+        """T3.3: 校正压缩 — 将当前窗口 + 已有概念摘要一起过 LLM.
 
         产出校正后双版本替代累积版本，防止增量误差累积。
         校正压缩后 compress_round_count 不重置，继续累加。
+
+        Returns:
+            {"natural_summary": str, "structured_summary": dict}
         """
-        # 构建校正压缩 Prompt：包含已有摘要 + 当前窗口
-        conversation_text = "\n".join(
-            f"[{m.role}] {m.content[:500]}" for m in recent_messages
-        )
-
-        prompt = (
-            "请对以下内容执行校正压缩。你将看到已有的概念摘要和当前对话窗口，"
-            "请综合两者产出一份完整、准确、无遗漏的校正摘要。\n\n"
-            "要求：\n"
-            "1. 保留所有关键实体（人名、地名、时间、数值、技术术语）\n"
-            "2. 保留已确认的结论和已排除的方案\n"
-            "3. 保留待办事项和未解决问题\n"
-            "4. 去除寒暄、重复确认等低信息内容\n"
-            "5. 压缩率为原始文本的20-30%\n"
-            "6. 输出格式：\n"
-            "   - 已确认结论：...\n"
-            "   - 已排除方案：...\n"
-            "   - 待办事项：...\n"
-            "   - 关键实体：...\n"
-            "   - 当前意图：...\n"
-        )
-
-        if wm.context_summary:
-            prompt += f"\n已有概念摘要（需校正）：\n{wm.context_summary}\n"
-
-        prompt += f"\n当前对话窗口：\n{conversation_text}"
-
-        summary = await self._call_llm_compress(prompt)
+        prompt = build_corrective_prompt(recent_messages, wm.context_summary)
+        llm_output = await self._call_llm_compress(prompt)
+        result = parse_compress_response(llm_output)
 
         logger.info(
             "Corrective compression applied for session %s (round=%d)",
             wm.session_id, wm.compress_round_count,
         )
 
-        return summary
+        return result
 
     # ------------------------------------------------------------------
     # FR-WM-003: Short-term memory archiving
@@ -452,7 +564,9 @@ class WorkingMemoryManager:
         2. User fact information -> SEMANTIC (L0 + L1 + L2)
         3. Key decisions/events -> EPISODIC (L0 + L1 + L2)
 
-        After archiving, the short-term memory is safely discardable.
+        修正：归档后保留短期记忆（L0 + L1），不立即删除。
+        短期记忆依赖 TTL（24h）自然过期，确保跨轮对话不丢失上下文。
+        仅清理 dedicated window List，因为消息已转为 episodic chunk 存储。
         """
         wm = self._sessions.get(session_id)
         if wm is None:
@@ -491,23 +605,30 @@ class WorkingMemoryManager:
             archive_result["episodic_extracted"] = len(episodic_items)
 
         except Exception as e:
-            logger.error("Error during session archiving for %s: %s", session_id, e)
+            import traceback
+            logger.error(
+                "Error during session archiving for %s: %s\n%s",
+                session_id, e, traceback.format_exc()
+            )
             archive_result["archived"] = False
             archive_result["error"] = str(e)
             return archive_result
 
-        # Clean up L0 after successful archive
-        self._sessions.pop(session_id, None)
+        # 修正：归档后保留 L0 短期记忆，不立即 pop
+        # 原代码 self._sessions.pop(session_id, None) 导致同一 session 后续请求丢失历史
+        # 短期记忆依赖 TTL（24h）自然过期，同时通过 L1 快照确保跨请求可用
 
-        # 3C-04: 归档后清理 Redis SHORT_TERM 数据
-        try:
-            await memory_orchestrator.delete(wm.user_id, MemoryType.SHORT_TERM, session_id)
-            logger.info("Cleaned up Redis SHORT_TERM data for session %s", session_id)
-        except Exception as cleanup_err:
-            logger.warning("Failed to clean up Redis SHORT_TERM data: %s", cleanup_err)
+        # 修正：归档后不清理 Redis SHORT_TERM 数据，依赖 24h TTL 自然过期
+        # 原代码 memory_orchestrator.delete(SHORT_TERM) 导致 L1 快照丢失
+        # 只清理 dedicated window List（消息已归档为 episodic chunk）
+
+        # S3.2: Clean up the dedicated window List (session:{id}:window)
+        # Window List 中的原始消息已转换为 episodic chunk，可安全清理
+        await self._clear_window_l1(session_id)
 
         logger.info(
-            "Session %s archived: summary=%s, semantic=%d, episodic=%d",
+            "Session %s archived: summary=%s, semantic=%d, episodic=%d "
+            "(working memory retained for cross-request continuity)",
             session_id,
             archive_result["summary_archived"],
             archive_result["semantic_extracted"],
@@ -571,6 +692,9 @@ class WorkingMemoryManager:
                 "excluded": excluded,
                 "pending": pending,
                 "key_decisions": [],
+                # 阶段3 P1: 新增 entities 和 intent 字段
+                "entities": list(wm.structured_summary.entities),
+                "intent": wm.structured_summary.intent,
             },
             "user_context": {},
             "execution_state": {
@@ -630,7 +754,7 @@ class WorkingMemoryManager:
         items: list[tuple[str, dict[str, Any]]] = []
 
         # Build a decision path from the working memory messages
-        path = episodic_memory_manager.start_decision_path(
+        episodic_memory_manager.start_decision_path(
             user_id=wm.user_id,
             session_id=wm.session_id,
             task_id=wm.task_id,
@@ -696,6 +820,86 @@ class WorkingMemoryManager:
     # Persistence helpers
     # ------------------------------------------------------------------
 
+    def _window_key(self, session_id: str) -> str:
+        """Build the Redis List key for the session window (S3.2 / Redis-Key规范 §3.1)."""
+        return SESSION_WINDOW_KEY_PATTERN.format(session_id=session_id)
+
+    def _window_max_size(self) -> int:
+        """Get the window max size from settings (default 50, kept as 2x for LTRIM)."""
+        try:
+            from app.config import settings
+            window_size = getattr(settings, "memory_window_size", 25)
+            return max(window_size * 2 - 1, 9)  # C-8.5: WINDOW_SIZE*2-1, min 9
+        except Exception:
+            return 49
+
+    async def _push_to_window_l1(self, session_id: str, msg: MessageItem) -> None:
+        """S3.2: Push a message to the Redis List window using Pipeline.
+
+        Per Redis-Key规范文档 §3.1 operation spec (C-8.5):
+            Pipeline: LPUSH + LTRIM(0, WINDOW_SIZE*2-1) + EXPIRE(24h)
+        Sovereignty: Python single-end write; Java is forbidden to read (C-5.12).
+        """
+        try:
+            from app.infrastructure.redis_client import redis_client
+            r = await redis_client.get_redis()
+            key = self._window_key(session_id)
+            payload = json.dumps({
+                "role": msg.role,
+                "content": msg.content,
+                "timestamp": msg.timestamp.isoformat(),
+                "metadata": msg.metadata,
+            }, ensure_ascii=False).encode("utf-8")
+
+            pipe = r.pipeline(transaction=False)
+            pipe.lpush(key, payload)
+            pipe.ltrim(key, 0, self._window_max_size())
+            pipe.expire(key, SESSION_WINDOW_TTL_SECONDS)
+            await pipe.execute()
+        except Exception as e:
+            logger.debug("Failed to push message to window L1: %s", e)
+
+    async def _load_window_l1(self, session_id: str) -> list[MessageItem]:
+        """S3.2: Load the message window from Redis List (L1).
+
+        Returns messages in chronological order (oldest first).
+        Used when L0 cache miss to restore session context.
+        """
+        try:
+            from app.infrastructure.redis_client import redis_client
+            r = await redis_client.get_redis()
+            key = self._window_key(session_id)
+            # LRANGE 0 -1 returns all items; Redis List is LPUSH-newest-first, reverse for chronology
+            raw_items = await r.lrange(key, 0, -1)
+            items: list[MessageItem] = []
+            for raw in reversed(raw_items):  # reverse to get chronological order
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                d = json.loads(raw)
+                items.append(MessageItem(
+                    role=d.get("role", "user"),
+                    content=d.get("content", ""),
+                    timestamp=(
+                    datetime.fromisoformat(d["timestamp"])
+                    if d.get("timestamp")
+                    else datetime.now(timezone.utc)
+                ),
+                    metadata=d.get("metadata", {}),
+                ))
+            return items
+        except Exception as e:
+            logger.warning("Failed to load window L1 for session %s: %s", session_id, e)
+            return []
+
+    async def _clear_window_l1(self, session_id: str) -> None:
+        """S3.2: Clear the Redis List window after session archive."""
+        try:
+            from app.infrastructure.redis_client import redis_client
+            r = await redis_client.get_redis()
+            await r.delete(self._window_key(session_id))
+        except Exception as e:
+            logger.debug("Failed to clear window L1: %s", e)
+
     async def _persist_to_l1(self, wm: WorkingMemoryData) -> None:
         """Persist working memory to Redis (L1) for cross-request access."""
         try:
@@ -706,18 +910,106 @@ class WorkingMemoryManager:
             logger.warning("Failed to persist working memory to L1: %s", e)
 
     async def load_from_l1(self, user_id: str, session_id: str) -> WorkingMemoryData | None:
-        """Load working memory from Redis (L1) if not in L0."""
+        """Load working memory from Redis (L1) if not in L0.
+
+        Prefers the SHORT_TERM memory record snapshot because it is written
+        synchronously by _persist_to_l1 and therefore more complete than the
+        fire-and-forget window list. The dedicated window List (session:{id}:window)
+        is used as a fallback when the snapshot is missing.
+        """
         if session_id in self._sessions:
             return self._sessions[session_id]
 
+        # 1) Prefer the SHORT_TERM memory record snapshot — written synchronously
+        # by _persist_to_l1, so it is the authoritative L1 copy of the working memory.
         try:
             data = await memory_orchestrator.read_session(user_id, session_id)
             if data:
                 wm = WorkingMemoryData(**data)
+                self._update_token_usage(wm)
                 self._sessions[session_id] = wm
+                logger.info(
+                    "Loaded working memory from SHORT_TERM snapshot: session=%s, messages=%d",
+                    session_id, len(wm.messages),
+                )
                 return wm
         except Exception as e:
-            logger.warning("Failed to load working memory from L1: %s", e)
+            logger.warning("Failed to load working memory from SHORT_TERM snapshot: %s", e)
+
+        # 2) Fallback: dedicated window List (S3.2)
+        window_messages = await self._load_window_l1(session_id)
+        if window_messages:
+            wm = WorkingMemoryData(
+                session_id=session_id,
+                user_id=user_id,
+                messages=window_messages,
+            )
+            self._update_token_usage(wm)
+            self._sessions[session_id] = wm
+            logger.info(
+                "Loaded working memory from window L1: session=%s, messages=%d",
+                session_id, len(window_messages),
+            )
+            return wm
+
+        # 3) L2 fallback: rebuild from archived episodic/summary data
+        # When L1 has been cleaned (e.g. after a prior archive_session), try to
+        # reconstruct working memory state from L2 so cross-request context is
+        # not lost. Uses session_summary and episodic chunks keyed by session_id.
+        try:
+            from app.layers.agent_core.episodic_memory_manager import episodic_memory_manager
+            from app.layers.agent_core.session_state_summary_manager import session_state_summary_manager
+
+            # Try to load the decision path for this session
+            dp_data = await memory_orchestrator.read_episodic(user_id, session_id)
+            if dp_data is None:
+                # Try with dp_ prefix (decision path key format)
+                for prefix in ("dp_", ""):
+                    candidate_key = f"{prefix}{session_id}" if prefix else session_id
+                    dp_data = await memory_orchestrator.read_episodic(user_id, candidate_key)
+                    if dp_data:
+                        break
+
+            # Try to load the latest session summary for the task
+            summary_data = None
+            if dp_data and dp_data.get("task_id"):
+                summary_data = await session_state_summary_manager.load_latest_summary(
+                    user_id, dp_data["task_id"],
+                )
+
+            # Reconstruct working memory from archived data
+            if dp_data:
+                messages: list[dict[str, Any]] = []
+                steps = dp_data.get("steps", [])
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    step_type = step.get("step_type", "")
+                    content = step.get("content", "")
+                    if step_type == "input" and content:
+                        messages.append({"role": "user", "content": content})
+                    elif step_type in ("output", "intermediate") and content:
+                        messages.append({"role": "assistant", "content": content})
+
+                context_summary = ""
+                if summary_data:
+                    context_summary = summary_data.compressed_history or ""
+
+                wm = WorkingMemoryData(
+                    session_id=session_id,
+                    user_id=user_id,
+                    messages=[MessageItem(role=m["role"], content=m["content"]) for m in messages],
+                    context_summary=context_summary,
+                    task_id=dp_data.get("task_id", ""),
+                    task_type=dp_data.get("task_type", ""),
+                )
+                self._update_token_usage(wm)
+                self._sessions[session_id] = wm
+                # Re-persist to L1 for fast access on subsequent requests
+                await self._persist_to_l1(wm)
+                return wm
+        except Exception as e:
+            logger.debug("L2 fallback load failed for session %s: %s", session_id, e)
 
         return None
 

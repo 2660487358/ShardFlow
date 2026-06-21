@@ -47,9 +47,15 @@ async def handle_conversation(
         raise HTTPException(status_code=400, detail=f"Input rejected: {'; '.join(inspection.reasons)}")
 
     session_id = x_session_id or body.session_id
+    # T1.2: 当传入的 session_id 为空或在 Redis 中不存在时，自动创建新 session
+    # 保留用户指定值，冲突时后端重新生成
     session = await session_manager.get_session(user_id, session_id) if session_id else None
     if session is None:
-        session = await session_manager.create_session(user_id, body.task_id or x_task_id, session_id)
+        session = await session_manager.create_session(
+            user_id,
+            body.task_id or x_task_id,
+            session_id,
+        )
         session_id = session["session_id"]
 
     intent, confidence = await intent_recognizer.recognize_async(body.message)
@@ -97,6 +103,26 @@ async def handle_conversation(
                     task_id=body.task_id or x_task_id,
                 )
 
+            # FIX-1: 用户消息写入 WorkingMemory (FR-WM-001)
+            # entities 类型: dict[str, list[str]]，需要扁平化为字符串列表供 metadata 使用
+            _entity_list: list[str] = []
+            if entities:
+                for _vals in entities.values():
+                    if isinstance(_vals, list):
+                        _entity_list.extend(_vals)
+            working_memory_manager.add_message(
+                session_id,
+                "user",
+                body.message,
+                metadata={
+                    "intent": intent,
+                    "entities": _entity_list,
+                },
+            )
+
+            # FIX-5: 用户消息写入后持久化到 L1 (FR-WM-002)
+            await working_memory_manager._persist_to_l1(wm)
+
             # 2A-01: ContextAssembler 组装记忆上下文
             from app.layers.agent_core.context_assembler import context_assembler
             assembly_result = await cb.call(
@@ -117,9 +143,9 @@ async def handle_conversation(
                 state["episodic_context"] = section_map.get("episodic", "")
 
             # 2A-03: 跨会话恢复
-            from app.layers.agent_core.session_recovery_manager import session_recovery_manager
+            from app.layers.interaction.session_recovery import session_recovery
             recovery_result = await cb.call(
-                session_recovery_manager.try_resume_session, user_id, body.task_id or x_task_id,
+                session_recovery.try_resume_session, user_id, body.task_id or x_task_id,
             )
             if recovery_result and recovery_result.get("resumed"):
                 # 恢复成功时 context_shard_info 优先级高于通用组装
@@ -131,7 +157,14 @@ async def handle_conversation(
 
     if body.stream:
         async def event_generator() -> Any:
-            async for sse_msg in stream_react_events(state, fastapi_request, intent_confidence=confidence):
+            # T1.1: 传入 session_id/task_id 以便 SSE 首事件回传 session_info
+            async for sse_msg in stream_react_events(
+                state,
+                request=fastapi_request,
+                intent_confidence=confidence,
+                session_id=session_id,
+                task_id=body.task_id or x_task_id,
+            ):
                 yield sse_msg
 
         return EventSourceResponse(

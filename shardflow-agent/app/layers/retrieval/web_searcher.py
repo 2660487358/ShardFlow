@@ -33,22 +33,35 @@ class WebSearcher:
         qhash = hashlib.md5(query.encode()).hexdigest()[:12]
         return f"search:{qhash}"
 
-    def _redis_key(self, query: str) -> str:
-        qhash = hashlib.md5(query.encode()).hexdigest()[:12]
-        return f"shardflow:search:cache:{qhash}"
+    def _redis_key(self, query: str, user_id: str = "") -> str:
+        """S3.9/FIX-KEY-2: 搜索缓存键加入 user_id 隔离（Redis-Key规范文档 §3.6）。
 
-    async def search(self, query: str, source_preference: dict[str, float] | None = None) -> list[SearchResult]:
+        旧格式: shardflow:search:cache:{hash}（无 user_id，跨用户缓存污染）
+        新格式: shardflow:{user_id}:search:{hash}（用户隔离）
+        """
+        qhash = hashlib.md5(query.encode()).hexdigest()[:12]
+        # S3.9: user_id 为空时使用 "anonymous" 兜底，避免跨用户污染
+        uid = user_id or "anonymous"
+        return f"shardflow:{uid}:search:{qhash}"
+
+    async def search(
+        self,
+        query: str,
+        source_preference: dict[str, float] | None = None,
+        user_id: str = "",
+    ) -> list[SearchResult]:
         """执行联网搜索。
 
         Args:
             query: 搜索关键词
             source_preference: 来源偏好权重（可选）
+            user_id: 用户 ID（S3.9: 用于搜索缓存用户隔离）
 
         Returns:
             搜索结果列表（按相关性排序）
         """
         # 检查缓存
-        cached = await self._get_cache(query)
+        cached = await self._get_cache(query, user_id)
         if cached is not None:
             return cached
 
@@ -73,11 +86,11 @@ class WebSearcher:
             results = sorted(results, key=lambda r: r.relevance_score, reverse=True)
 
         # 缓存结果
-        await self._set_cache(query, results)
+        await self._set_cache(query, results, user_id)
 
         return results
 
-    async def _get_cache(self, query: str) -> list[SearchResult] | None:
+    async def _get_cache(self, query: str, user_id: str = "") -> list[SearchResult] | None:
         cache_key = self._cache_key(query)
         cached = self._l0_cache.get(cache_key)
         if cached is not None:
@@ -85,7 +98,7 @@ class WebSearcher:
 
         try:
             r = await redis_client.get_redis()
-            raw = await r.get(self._redis_key(query))
+            raw = await r.get(self._redis_key(query, user_id))
             if raw:
                 data = json.loads(raw)
                 results = [SearchResult(**item) for item in data]
@@ -95,13 +108,13 @@ class WebSearcher:
             pass
         return None
 
-    async def _set_cache(self, query: str, results: list[SearchResult]) -> None:
+    async def _set_cache(self, query: str, results: list[SearchResult], user_id: str = "") -> None:
         cache_key = self._cache_key(query)
         self._l0_cache.set(cache_key, results)
         try:
             r = await redis_client.get_redis()
             await r.set(
-                self._redis_key(query),
+                self._redis_key(query, user_id),
                 json.dumps([r.model_dump() for r in results]),
                 ex=self.SEARCH_CACHE_TTL,
             )

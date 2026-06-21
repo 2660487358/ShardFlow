@@ -9,6 +9,9 @@ Four-layer memory model:
 - SESSION_SUMMARY: Cross-session state snapshots (L0 + L1 + L2)
 - SEMANTIC:        User facts, preferences, profile (L0 + L1 + L2)
 - EPISODIC:        Decision paths, historical events (L0 + L1 + L2)
+
+S5.7: All read/write/delete/search operations are audited via AuditLogger
+to achieve 100% memory operation audit coverage (FR-EM-003).
 """
 import logging
 from typing import Any
@@ -26,6 +29,8 @@ class MemoryOrchestrator:
         orchestrator = MemoryOrchestrator()
         record = await orchestrator.read(user_id, MemoryType.SESSION_SUMMARY, task_id)
         await orchestrator.write(user_id, MemoryType.SEMANTIC, key, data)
+
+    S5.7: All CRUD operations emit audit events for 100% coverage.
     """
 
     def __init__(self) -> None:
@@ -48,13 +53,78 @@ class MemoryOrchestrator:
         return mapping[memory_type]
 
     # ------------------------------------------------------------------
+    # S5.7: Audit helpers — non-blocking, fault-tolerant
+    # ------------------------------------------------------------------
+
+    async def _audit_read(self, user_id: str, memory_type: MemoryType, key: str,
+                          hit: bool) -> None:
+        """S5.7: Audit memory read operation (FR-EM-003)."""
+        try:
+            from app.layers.security.audit_logger import audit_logger
+            await audit_logger.log_memory_read(
+                user_id=user_id,
+                session_id="",
+                memory_id=key,
+                memory_type=memory_type.value,
+            )
+        except Exception as e:
+            logger.debug("Audit read failed (non-blocking): %s", e)
+
+    async def _audit_write(self, user_id: str, memory_type: MemoryType, key: str) -> None:
+        """S5.7: Audit memory write operation (FR-EM-003)."""
+        try:
+            from app.layers.security.audit_logger import audit_logger
+            await audit_logger.log_memory_write(
+                user_id=user_id,
+                session_id="",
+                memory_id=key,
+                memory_type=memory_type.value,
+            )
+        except Exception as e:
+            logger.debug("Audit write failed (non-blocking): %s", e)
+
+    async def _audit_delete(self, user_id: str, memory_type: MemoryType, key: str,
+                            success: bool) -> None:
+        """S5.7: Audit memory delete operation (FR-EM-003)."""
+        try:
+            from app.layers.security.audit_logger import audit_logger
+            await audit_logger.log_memory_delete(
+                user_id=user_id,
+                session_id="",
+                memory_id=key,
+                memory_type=memory_type.value,
+            )
+        except Exception as e:
+            logger.debug("Audit delete failed (non-blocking): %s", e)
+
+    async def _audit_search(self, user_id: str, memory_type: MemoryType,
+                            query: MemoryQuery, result_count: int) -> None:
+        """S5.7: Audit memory search operation (FR-EM-003)."""
+        try:
+            from app.layers.security.audit_logger import audit_logger
+            await audit_logger.log_memory_search(
+                user_id=user_id,
+                session_id="",
+                query_text=f"prefix={query.key_prefix} tags={query.tags}",
+                result_ids=[],
+                search_type=memory_type.value,
+            )
+        except Exception as e:
+            logger.debug("Audit search failed (non-blocking): %s", e)
+
+    # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
 
     async def read(self, user_id: str, memory_type: MemoryType, key: str) -> MemoryRecord | None:
-        """Read memory through L0→L1→L2 degrade chain."""
+        """Read memory through L0→L1→L2 degrade chain.
+
+        S5.7: Emits memory_read audit event.
+        """
         adapter = self._adapter_for(memory_type)
-        return await adapter.read(user_id, memory_type, key)
+        result = await adapter.read(user_id, memory_type, key)
+        await self._audit_read(user_id, memory_type, key, hit=result is not None)
+        return result
 
     # ------------------------------------------------------------------
     # Write
@@ -62,17 +132,29 @@ class MemoryOrchestrator:
 
     async def write(self, user_id: str, memory_type: MemoryType, key: str,
                     data: dict[str, Any], ttl_seconds: int = 0) -> MemoryRecord:
-        """Write memory: broadcast to all tiers (L2 authoritative)."""
+        """Write memory: broadcast to all tiers (L2 authoritative).
+
+        S5.7: Emits memory_write audit event.
+        """
         adapter = self._adapter_for(memory_type)
-        return await adapter.write(user_id, memory_type, key, data, ttl_seconds)
+        result = await adapter.write(user_id, memory_type, key, data, ttl_seconds)
+
+        await self._audit_write(user_id, memory_type, key)
+        return result
 
     # ------------------------------------------------------------------
     # Delete
     # ------------------------------------------------------------------
 
     async def delete(self, user_id: str, memory_type: MemoryType, key: str) -> bool:
+        """Delete memory from all tiers.
+
+        S5.7: Emits memory_delete audit event.
+        """
         adapter = self._adapter_for(memory_type)
-        return await adapter.delete(user_id, memory_type, key)
+        success = await adapter.delete(user_id, memory_type, key)
+        await self._audit_delete(user_id, memory_type, key, success)
+        return success
 
     # ------------------------------------------------------------------
     # Search
@@ -80,8 +162,14 @@ class MemoryOrchestrator:
 
     async def search(self, user_id: str, memory_type: MemoryType,
                      query: MemoryQuery) -> list[MemoryRecord]:
+        """Search memory across tiers.
+
+        S5.7: Emits memory_search audit event.
+        """
         adapter = self._adapter_for(memory_type)
-        return await adapter.search(user_id, memory_type, query)
+        results = await adapter.search(user_id, memory_type, query)
+        await self._audit_search(user_id, memory_type, query, len(results))
+        return results
 
     # ------------------------------------------------------------------
     # Exists

@@ -3,8 +3,8 @@ package com.shardflow.memory.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.dto.memory.MemoryCreateRequest;
 import com.shardflow.common.dto.memory.MemoryCreateResponse;
 import com.shardflow.common.dto.memory.MemorySearchRequest;
@@ -15,7 +15,9 @@ import com.shardflow.memory.repository.MemoryChunkRepository;
 import com.shardflow.memory.service.MemoryChunkService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,9 +36,17 @@ public class MemoryChunkServiceImpl implements MemoryChunkService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
 
-    /** Redis key pattern for memory cache: shardflow:{userId}:mem:{chunkId} */
-    private static final String REDIS_KEY_PATTERN = "shardflow:%s:mem:%s";
+    /**
+     * Redis key pattern for memory cache (FIX-KEY-1: 4段格式)。
+     * <p>
+     * 格式：shardflow:{user_id}:mem:{memory_type}:{chunkId}
+     * 与 Python 推理层 redis_adapter.py 保持一致，确保 L1 缓存跨端共享（G-1/G-6 修复）。
+     */
+    private static final String REDIS_KEY_PATTERN = "shardflow:%s:mem:%s:%s";
     private static final Duration REDIS_TTL = Duration.ofMinutes(30);
+
+    /** SCAN 单次匹配数（C-8.5 禁用 KEYS，使用 SCAN） */
+    private static final long SCAN_COUNT = 100L;
 
     @Override
     @Transactional
@@ -148,7 +158,7 @@ public class MemoryChunkServiceImpl implements MemoryChunkService {
                         .eq(MemoryChunkEntity::getChunkId, chunkId)
                         .set(MemoryChunkEntity::getIsDeleted, true));
 
-        removeFromRedis(entity.getUserId(), chunkId);
+        removeFromRedis(entity.getUserId(), entity.getMemoryType(), chunkId);
 
         return updated > 0;
     }
@@ -289,27 +299,106 @@ public class MemoryChunkServiceImpl implements MemoryChunkService {
     }
 
     // ------------------------------------------------------------------
-    // Redis cache sync
+    // 冲突解决 API（C-3.3）
+    // ------------------------------------------------------------------
+
+    @Override
+    public List<MemoryChunkEntity> listPendingConflicts(String userId) {
+        return repository.selectList(
+                new LambdaQueryWrapper<MemoryChunkEntity>()
+                        .eq(MemoryChunkEntity::getUserId, userId)
+                        .eq(MemoryChunkEntity::getHasConflict, true)
+                        .eq(MemoryChunkEntity::getResolutionStatus, "pending")
+                        .eq(MemoryChunkEntity::getIsDeleted, false)
+                        .orderByDesc(MemoryChunkEntity::getCreatedAt));
+    }
+
+    @Override
+    @Transactional
+    public Optional<MemoryChunkEntity> resolveConflict(String chunkId, String resolution, String resolvedContent) {
+        MemoryChunkEntity entity = repository.selectOne(
+                new LambdaQueryWrapper<MemoryChunkEntity>()
+                        .eq(MemoryChunkEntity::getChunkId, chunkId)
+                        .eq(MemoryChunkEntity::getIsDeleted, false));
+
+        if (entity == null) {
+            return Optional.empty();
+        }
+
+        if (!Boolean.TRUE.equals(entity.getHasConflict())) {
+            log.warn("Memory chunk {} has no conflict to resolve", chunkId);
+            return Optional.of(entity);
+        }
+
+        switch (resolution.toUpperCase()) {
+            case "KEEP_NEW" -> {
+                // 保留当前内容（新内容已写入），仅标记冲突已解决
+                entity.setHasConflict(false);
+                entity.setResolutionStatus("resolved_keep_new");
+                entity.setConflictWith(null);
+            }
+            case "KEEP_OLD" -> {
+                // 恢复为旧内容（如果冲突对象存在）
+                if (entity.getConflictWith() != null) {
+                    MemoryChunkEntity oldEntity = repository.selectOne(
+                            new LambdaQueryWrapper<MemoryChunkEntity>()
+                                    .eq(MemoryChunkEntity::getChunkId, entity.getConflictWith())
+                                    .eq(MemoryChunkEntity::getIsDeleted, false));
+                    if (oldEntity != null) {
+                        entity.setContentText(oldEntity.getContentText());
+                        entity.setContentStructured(oldEntity.getContentStructured());
+                    }
+                }
+                entity.setHasConflict(false);
+                entity.setResolutionStatus("resolved_keep_old");
+                entity.setConflictWith(null);
+            }
+            case "MERGE" -> {
+                // 使用合并后的内容
+                if (resolvedContent != null && !resolvedContent.isBlank()) {
+                    entity.setContentText(resolvedContent);
+                }
+                entity.setHasConflict(false);
+                entity.setResolutionStatus("resolved_merged");
+                entity.setConflictWith(null);
+            }
+            default -> {
+                log.warn("Unknown conflict resolution strategy: {}", resolution);
+                return Optional.of(entity);
+            }
+        }
+
+        repository.updateById(entity);
+        syncToRedis(entity);
+        log.info("Conflict resolved: chunkId={}, strategy={}", chunkId, resolution);
+        return Optional.of(entity);
+    }
+
+    // ------------------------------------------------------------------
+    // Redis cache sync (FIX-KEY-1: 4段格式 + SCAN 替代 KEYS)
     // ------------------------------------------------------------------
 
     private void syncToRedis(MemoryChunkEntity entity) {
         try {
-            String key = String.format(REDIS_KEY_PATTERN, entity.getUserId(), entity.getChunkId());
+            String key = buildRedisKey(entity.getUserId(), entity.getMemoryType(), entity.getChunkId());
             String json = objectMapper.writeValueAsString(entity);
             redisTemplate.opsForValue().set(key, json, REDIS_TTL);
             log.debug("Synced memory to Redis: key={}", key);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to sync memory to Redis: {}", e.getMessage());
         }
     }
 
     private MemoryChunkEntity loadFromRedis(String chunkId) {
-        // Scan for key pattern since we need userId for the full key
-        // This is a simplified approach - try to find the key by scanning
-        try {
-            Set<String> keys = redisTemplate.keys("shardflow:*:mem:" + chunkId);
-            if (keys != null && !keys.isEmpty()) {
-                String key = keys.iterator().next();
+        // C-8.5: 使用 SCAN 替代 KEYS 命令，避免阻塞 Redis
+        // 扫描模式：shardflow:*:mem:*:{chunkId}
+        String scanPattern = "shardflow:*:mem:*:" + chunkId;
+        try (Cursor<byte[]> cursor = redisTemplate.getConnectionFactory()
+                .getConnection()
+                .keyCommands()
+                .scan(ScanOptions.scanOptions().match(scanPattern).count(SCAN_COUNT).build())) {
+            while (cursor.hasNext()) {
+                String key = new String(cursor.next());
                 Object raw = redisTemplate.opsForValue().get(key);
                 if (raw instanceof String json) {
                     return objectMapper.readValue(json, MemoryChunkEntity.class);
@@ -321,13 +410,22 @@ public class MemoryChunkServiceImpl implements MemoryChunkService {
         return null;
     }
 
-    private void removeFromRedis(String userId, String chunkId) {
+    private void removeFromRedis(String userId, String memoryType, String chunkId) {
         try {
-            String key = String.format(REDIS_KEY_PATTERN, userId, chunkId);
+            // 优先按 4 段格式精确删除
+            String key = buildRedisKey(userId, memoryType, chunkId);
             redisTemplate.delete(key);
         } catch (Exception e) {
             log.warn("Failed to remove memory from Redis: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 构造 4 段格式 Redis Key：shardflow:{user_id}:mem:{memory_type}:{chunkId}
+     */
+    private String buildRedisKey(String userId, String memoryType, String chunkId) {
+        String mt = (memoryType != null && !memoryType.isBlank()) ? memoryType : "UNKNOWN";
+        return String.format(REDIS_KEY_PATTERN, userId, mt, chunkId);
     }
 
     // ------------------------------------------------------------------
@@ -381,7 +479,7 @@ public class MemoryChunkServiceImpl implements MemoryChunkService {
         if (obj == null) return null;
         try {
             return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize object to JSON", e);
             return null;
         }
@@ -392,7 +490,7 @@ public class MemoryChunkServiceImpl implements MemoryChunkService {
         if (json == null || json.isBlank()) return null;
         try {
             return objectMapper.readValue(json, Map.class);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.debug("Failed to parse JSON to Map", e);
             return null;
         }

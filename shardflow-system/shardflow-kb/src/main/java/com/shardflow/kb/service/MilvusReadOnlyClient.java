@@ -6,7 +6,11 @@ import io.milvus.param.R;
 import io.milvus.param.RpcStatus;
 import io.milvus.param.collection.HasCollectionParam;
 import io.milvus.param.collection.ShowCollectionsParam;
+import io.milvus.param.dml.QueryParam;
+import io.milvus.param.dml.SearchParam;
 import io.milvus.grpc.ShowCollectionsResponse;
+import io.milvus.grpc.QueryResults;
+import io.milvus.grpc.SearchResults;
 import io.milvus.param.collection.CreateDatabaseParam;
 import io.milvus.grpc.ListDatabasesResponse;
 import jakarta.annotation.PreDestroy;
@@ -16,6 +20,16 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * Milvus 只读客户端（C-4.16 红线强制）。
+ * <p>
+ * 规则条款：C-4.16（Java 端禁止 upsert/delete Milvus 向量）、C-2.2（Milvus 主权端为 Python）。
+ * <p>
+ * 强制只读策略：
+ * 1. 仅暴露 query/search 等读方法，不暴露原始 MilvusServiceClient 给业务层。
+ * 2. 写入方法（insert/upsert/delete）显式抛出 UnsupportedOperationException。
+ * 3. 启动时记录只读模式日志，便于审计。
+ */
 @Slf4j
 @Service
 public class MilvusReadOnlyClient {
@@ -72,7 +86,7 @@ public class MilvusReadOnlyClient {
                 .build()
         );
         initialized = true;
-        log.info("Milvus read-only client connected to {}:{}/{}", host, port, database);
+        log.info("Milvus READ-ONLY client connected to {}:{}/{} (C-4.16: writes blocked)", host, port, database);
     }
 
     private void ensureDatabaseExists(MilvusServiceClient initClient) {
@@ -126,5 +140,68 @@ public class MilvusReadOnlyClient {
 
     public boolean isInitialized() {
         return initialized;
+    }
+
+    // ===== 只读查询方法（C-4.16 允许的读操作）=====
+
+    /**
+     * 执行 Milvus 查询（只读）。
+     */
+    public R<QueryResults> query(QueryParam queryParam) {
+        return getClient().query(queryParam);
+    }
+
+    /**
+     * 执行 Milvus 向量搜索（只读）。
+     */
+    public R<SearchResults> search(SearchParam searchParam) {
+        return getClient().search(searchParam);
+    }
+
+    // ===== 写入阻断（C-4.16 红线）=====
+
+    /**
+     * 写入操作阻断（C-4.16 红线）。
+     * <p>
+     * Java 端禁止对 Milvus 执行任何写入操作（insert/upsert/delete）。
+     * Milvus 向量的写入主权端为 Python 推理层（C-2.2）。
+     * 任何尝试调用写入方法的行为都将抛出 UnsupportedOperationException。
+     *
+     * @param operation 写入操作名称（insert/upsert/delete）
+     * @throws UnsupportedOperationException 始终抛出
+     */
+    public void assertWriteBlocked(String operation) {
+        String msg = String.format(
+            "C-4.16 RED LINE VIOLATION: Milvus write operation '%s' is BLOCKED on Java side. " +
+            "Milvus vector writes are sovereign to Python inference layer (C-2.2). " +
+            "Use Python callback or LlamaIndex pipeline to write vectors.",
+            operation
+        );
+        log.error(msg);
+        throw new UnsupportedOperationException(msg);
+    }
+
+    /**
+     * 阻断 insert 操作。
+     */
+    public <T> R<RpcStatus> insert(io.milvus.param.dml.InsertParam insertParam) {
+        assertWriteBlocked("insert");
+        return null; // unreachable
+    }
+
+    /**
+     * 阻断 upsert 操作。
+     */
+    public <T> R<RpcStatus> upsert(io.milvus.param.dml.UpsertParam upsertParam) {
+        assertWriteBlocked("upsert");
+        return null; // unreachable
+    }
+
+    /**
+     * 阻断 delete 操作。
+     */
+    public R<RpcStatus> delete(io.milvus.param.dml.DeleteParam deleteParam) {
+        assertWriteBlocked("delete");
+        return null; // unreachable
     }
 }

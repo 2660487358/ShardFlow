@@ -7,6 +7,14 @@ Manages the lifecycle of session state summaries:
 - Summary version management (FR-SS-004)
 
 Storage: Redis (L1) + PostgreSQL via Java API (L2).
+
+S3.3: 会话状态摘要双写
+- L1 直写 Redis（会话维度 + 用户维度双键）
+  - `session:{session_id}:summary` (会话维度，24h TTL)
+  - `session:{session_id}:summary:version` (版本号，乐观锁)
+  - `shardflow:{user_id}:sss:{task_id}:latest` (用户维度，跨会话检索)
+- Lua 脚本原子写入 summary + INCR version（C-6.5）
+- CB-09 回调 Java 异步归档 PG（C-6.6）
 """
 import json
 import logging
@@ -26,6 +34,24 @@ from app.models.session_state_summary import (
 
 logger = logging.getLogger(__name__)
 
+# S3.3: Lua script for atomic summary + version write (C-6.5 乐观锁)
+# KEYS[1] = session:{session_id}:summary
+# KEYS[2] = session:{session_id}:summary:version
+# ARGV[1] = summary JSON
+# ARGV[2] = TTL seconds (24h)
+# Returns: new version number
+_SUMMARY_ATOMIC_WRITE_LUA = """
+local summary_key = KEYS[1]
+local version_key = KEYS[2]
+local summary_json = ARGV[1]
+local ttl = tonumber(ARGV[2])
+
+redis.call('SET', summary_key, summary_json, 'EX', ttl)
+local new_version = redis.call('INCR', version_key)
+redis.call('EXPIRE', version_key, ttl)
+return new_version
+"""
+
 
 class SessionStateSummaryManager:
     """Manages session state summaries for cross-session continuity."""
@@ -35,11 +61,65 @@ class SessionStateSummaryManager:
     TRIGGER_SESSION_END = "session_end"
     TRIGGER_USER_REQUEST = "user_request"
 
-    # Redis key pattern for summary cache
+    # Redis key pattern for summary cache (user dimension, cross-session)
     REDIS_KEY_PATTERN = "shardflow:{user_id}:sss:{task_id}:latest"
 
+    # S3.3: Session-dimension keys per Redis-Key规范文档 §3.1
+    SESSION_SUMMARY_KEY_PATTERN = "session:{session_id}:summary"
+    SESSION_SUMMARY_VERSION_KEY_PATTERN = "session:{session_id}:summary:version"
+    SESSION_SUMMARY_TTL_SECONDS = 86400  # 24h
+
     def __init__(self) -> None:
-        pass
+        # S3.3: Cache the loaded Lua script SHA for reuse
+        self._lua_sha: str | None = None
+
+    # ------------------------------------------------------------------
+    # S3.3: Lua script atomic write (C-6.5 乐观锁)
+    # ------------------------------------------------------------------
+
+    async def _ensure_lua_script(self, r: Any) -> str:
+        """Load the Lua script into Redis and cache its SHA."""
+        if self._lua_sha is None:
+            self._lua_sha = await r.script_load(_SUMMARY_ATOMIC_WRITE_LUA)
+        return self._lua_sha
+
+    async def _atomic_write_session_summary(
+        self, session_id: str, summary_json: str,
+    ) -> int:
+        """S3.3: Atomically write summary + INCR version via Lua script (C-6.5).
+
+        Writes to:
+        - `session:{session_id}:summary` (String, 24h TTL)
+        - `session:{session_id}:summary:version` (String, INCR + 24h TTL)
+
+        Returns the new version number.
+        """
+        try:
+            from app.infrastructure.redis_client import redis_client
+            r = await redis_client.get_redis()
+            sha = await self._ensure_lua_script(r)
+            summary_key = self.SESSION_SUMMARY_KEY_PATTERN.format(session_id=session_id)
+            version_key = self.SESSION_SUMMARY_VERSION_KEY_PATTERN.format(session_id=session_id)
+            new_version = await r.evalsha(
+                sha, 2, summary_key, version_key,
+                summary_json, str(self.SESSION_SUMMARY_TTL_SECONDS),
+            )
+            return int(new_version)
+        except Exception as e:
+            logger.warning("Lua atomic write failed for session %s: %s", session_id, e)
+            # Fallback: non-atomic SET + INCR
+            try:
+                from app.infrastructure.redis_client import redis_client
+                r = await redis_client.get_redis()
+                summary_key = self.SESSION_SUMMARY_KEY_PATTERN.format(session_id=session_id)
+                version_key = self.SESSION_SUMMARY_VERSION_KEY_PATTERN.format(session_id=session_id)
+                await r.set(summary_key, summary_json, ex=self.SESSION_SUMMARY_TTL_SECONDS)
+                new_version = await r.incr(version_key)
+                await r.expire(version_key, self.SESSION_SUMMARY_TTL_SECONDS)
+                return int(new_version)
+            except Exception as fallback_err:
+                logger.error("Fallback summary write also failed: %s", fallback_err)
+                return 0
 
     # ------------------------------------------------------------------
     # FR-SS-001: Automatic summary extraction
@@ -126,8 +206,18 @@ class SessionStateSummaryManager:
         context_summary: str = "",
         intent_stack: list[str] | None = None,
         trigger: str = "session_end",
+        session_id: str | None = None,
     ) -> SessionStateSummary:
-        """Extract a summary and persist it to L1 (Redis) + L2 (PostgreSQL)."""
+        """Extract a summary and persist it to L1 (Redis) + L2 (PostgreSQL).
+
+        S3.3: 三级写入
+        1. L1 会话维度: `session:{session_id}:summary` + `:version` (Lua 原子写入, C-6.5)
+        2. L1 用户维度: `shardflow:{user_id}:sss:{task_id}:latest` (跨会话检索)
+        3. L2 PG: 通过 MemoryOrchestrator (CompositeAdapter L2) + CB-09 回调 Java 异步归档
+
+        Args:
+            session_id: S3.3 新增，用于会话维度 Lua 原子写入。若为 None 则跳过会话维度写入。
+        """
         summary = await self.extract_summary(
             user_id=user_id,
             task_id=task_id,
@@ -145,10 +235,53 @@ class SessionStateSummaryManager:
             user_id, task_id, summary.model_dump(mode="json")
         )
 
-        # Also save to Redis with structured key for fast lookup
+        # S3.3: L1 会话维度 Lua 原子写入 (session:{id}:summary + :version)
+        new_version = 0
+        if session_id:
+            try:
+                new_version = await self._atomic_write_session_summary(
+                    session_id, summary.model_dump_json(),
+                )
+                if new_version > 0:
+                    summary.version = new_version
+                    logger.info(
+                        "S3.3: Session summary atomic write: session=%s, version=%d",
+                        session_id, new_version,
+                    )
+            except Exception as e:
+                logger.warning("S3.3: Session-dimension summary write failed: %s", e)
+
+        # Also save to Redis with user-dimension structured key for fast lookup
         await self._save_to_redis_cache(summary)
 
+        # S3.3: CB-09 回调 Java 异步归档 PG (C-6.6)
+        await self._callback_java_archive(summary, session_id, trigger)
+
         return summary
+
+    async def _callback_java_archive(
+        self,
+        summary: SessionStateSummary,
+        session_id: str | None,
+        trigger_reason: str,
+    ) -> None:
+        """S3.3: CB-09 回调 Java 异步归档 PG (C-6.6).
+
+        Python 生成摘要后回调 Java 端异步归档到 PostgreSQL。
+        失败时不影响主流程，仅记录日志（L1 已写入，下次可补偿）。
+        """
+        try:
+            from app.infrastructure.callback_client import callback_client
+            await callback_client.session_summary_callback(
+                session_id=session_id or summary.task_id,
+                user_id=summary.user_id,
+                summary=summary.compressed_history or "",
+                version=summary.version,
+                token_count=len(summary.compressed_history or "") // 4,  # 粗略估算
+                trigger_reason=trigger_reason,
+            )
+        except Exception as e:
+            logger.warning("S3.3: CB-09 callback failed (L1 already written, will retry): %s", e)
 
     def _build_knowledge_state(
         self,
@@ -568,13 +701,34 @@ class SessionStateSummaryManager:
     # ------------------------------------------------------------------
 
     async def load_latest_summary(
-        self, user_id: str, task_id: str,
+        self, user_id: str, task_id: str, session_id: str | None = None,
     ) -> SessionStateSummary | None:
         """Load the latest session state summary for a task.
 
-        Tries Redis cache first, then falls back to MemoryOrchestrator.
+        S3.3: 三级读取优先级
+        1. 会话维度 Redis: `session:{session_id}:summary` (若提供 session_id)
+        2. 用户维度 Redis: `shardflow:{user_id}:sss:{task_id}:latest`
+        3. MemoryOrchestrator (L0 → L1 → L2)
         """
-        # Try Redis cache first
+        # S3.3: Try session-dimension Redis cache first (if session_id provided)
+        if session_id:
+            try:
+                from app.infrastructure.redis_client import redis_client
+                r = await redis_client.get_redis()
+                session_key = self.SESSION_SUMMARY_KEY_PATTERN.format(session_id=session_id)
+                raw = await r.get(session_key)
+                if raw:
+                    data = json.loads(raw)
+                    # Also read version for consistency check
+                    version_key = self.SESSION_SUMMARY_VERSION_KEY_PATTERN.format(session_id=session_id)
+                    version_raw = await r.get(version_key)
+                    if version_raw:
+                        data["version"] = int(version_raw)
+                    return SessionStateSummary(**data)
+            except Exception as e:
+                logger.debug("Session-dimension Redis cache miss for %s: %s", session_id, e)
+
+        # Try user-dimension Redis cache
         try:
             from app.infrastructure.redis_client import redis_client
             r = await redis_client.get_redis()

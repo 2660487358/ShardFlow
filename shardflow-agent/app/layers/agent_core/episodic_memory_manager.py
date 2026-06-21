@@ -331,6 +331,9 @@ class EpisodicMemoryManager:
                                        limit: int = 20) -> list[HistoricalSessionSummary]:
         """Retrieve historical session summaries, optionally filtered by topic.
 
+        S5.6: Enhanced with topic clustering — aggregates related sessions
+        by topic/category, supporting semantic retrieval and timeline browsing.
+
         Aggregates episodic memory entries by topic for timeline browsing.
         """
         from app.models.memory import MemoryQuery
@@ -338,36 +341,84 @@ class EpisodicMemoryManager:
         query = MemoryQuery(
             memory_type=MemoryType.EPISODIC,
             key_prefix="chunk_dp_",
-            limit=limit * 2,  # Over-fetch for filtering
+            limit=limit * 3,  # Over-fetch for clustering
         )
 
         records = await memory_orchestrator.search(user_id, MemoryType.EPISODIC, query)
 
-        summaries: list[HistoricalSessionSummary] = []
+        # S5.6: Group records by topic/category for true aggregation
+        topic_groups: dict[str, list[dict[str, Any]]] = {}
         for record in records:
             try:
                 data = record.data
-                category = data.get("category", "")
+                category = data.get("category", "") or data.get("task_type", "unknown")
 
                 # Filter by topic if specified
                 if topic and topic.lower() not in category.lower() and topic.lower() not in data.get("text", "").lower():
                     continue
 
-                summary = HistoricalSessionSummary(
-                    topic=category or data.get("task_type", "unknown"),
-                    session_ids=[data.get("session_id", "")],
-                    time_range={
-                        "start": data.get("created_at", ""),
-                        "end": data.get("updated_at", ""),
-                    },
-                    key_decisions=data.get("key_decisions", []),
-                    tools_used=data.get("tools_used", []),
-                    conclusion_summary=data.get("text", "")[:200],
-                    relevance_score=data.get("confidence", 0.0),
-                )
-                summaries.append(summary)
+                if category not in topic_groups:
+                    topic_groups[category] = []
+                topic_groups[category].append(data)
             except Exception:
                 continue
+
+        # S5.6: Build aggregated summaries from topic groups
+        summaries: list[HistoricalSessionSummary] = []
+        for topic_key, group_data in topic_groups.items():
+            # Aggregate session IDs
+            session_ids = list({
+                d.get("session_id", "") for d in group_data if d.get("session_id")
+            })
+
+            # Aggregate key decisions
+            key_decisions: list[str] = []
+            for d in group_data:
+                decisions = d.get("key_decisions", [])
+                if isinstance(decisions, list):
+                    for dec in decisions:
+                        if dec and dec not in key_decisions:
+                            key_decisions.append(dec)
+
+            # Aggregate tools used
+            tools_used: list[str] = []
+            for d in group_data:
+                tools = d.get("tools_used", [])
+                if isinstance(tools, list):
+                    for tool in tools:
+                        if tool and tool not in tools_used:
+                            tools_used.append(tool)
+
+            # Compute time range
+            timestamps = sorted([
+                d.get("created_at", "") for d in group_data if d.get("created_at")
+            ])
+            time_range = {
+                "start": timestamps[0] if timestamps else "",
+                "end": timestamps[-1] if timestamps else "",
+            }
+
+            # Build conclusion summary from all sessions in the group
+            conclusion_parts = [
+                d.get("text", "")[:100] for d in group_data if d.get("text")
+            ]
+            conclusion_summary = " | ".join(conclusion_parts)[:500]
+
+            # Relevance score: based on group size and average confidence
+            avg_confidence = sum(
+                d.get("confidence", 0.7) for d in group_data
+            ) / len(group_data) if group_data else 0.0
+            relevance_score = min(1.0, avg_confidence * 0.7 + len(group_data) * 0.1)
+
+            summaries.append(HistoricalSessionSummary(
+                topic=topic_key,
+                session_ids=session_ids,
+                time_range=time_range,
+                key_decisions=key_decisions[:10],
+                tools_used=tools_used,
+                conclusion_summary=conclusion_summary,
+                relevance_score=relevance_score,
+            ))
 
         # Sort by relevance score descending
         summaries.sort(key=lambda s: s.relevance_score, reverse=True)
@@ -554,11 +605,16 @@ class EpisodicMemoryManager:
                                 task_id: str, operation: str,
                                 target_id: str = "",
                                 details: dict[str, Any] | None = None) -> None:
-        """Log a memory operation to the audit system."""
+        """Log a memory operation to the audit system.
+
+        S5.7: Fixed event_type naming to match MEMORY_AUDIT_OPS set.
+        Operations passed in are already valid event types (e.g., episodic_write,
+        trace_save) and should be used directly without 'memory_' prefix.
+        """
         try:
             from app.layers.security.audit_logger import audit_logger
             await audit_logger.log(
-                event_type=f"memory_{operation}",
+                event_type=operation,
                 user_id=user_id,
                 session_id=session_id,
                 task_id=task_id,

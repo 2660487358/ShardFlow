@@ -33,7 +33,8 @@ class SessionRecoveryManager:
         SessionStateSummaryManager before archiving.
         """
         r = await redis_client.get_redis()
-        session_key = f"shardflow:{user_id}:session:{session_id}"
+        # Session metadata is stored under SHORT_TERM with key "session:{session_id}"
+        session_key = f"shardflow:{user_id}:mem:short_term:session:{session_id}"
 
         task_id = state.get("task_id", "")
 
@@ -81,7 +82,9 @@ class SessionRecoveryManager:
         if no active session is found in Redis.
         """
         r = await redis_client.get_redis()
-        prefix = f"shardflow:{user_id}:session:"
+        # SessionManager stores session metadata under SHORT_TERM with key
+        # "session:{session_id}" → Redis key "shardflow:{user_id}:mem:short_term:session:*"
+        prefix = f"shardflow:{user_id}:mem:short_term:session:"
 
         # First, try to find an active session in Redis
         async for key in r.scan_iter(match=f"{prefix}*", count=50):

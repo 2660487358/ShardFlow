@@ -28,6 +28,23 @@ public class StrategyServiceImpl implements StrategyService {
         if (strategy.getCostMs() == null) {
             strategy.setCostMs(0);
         }
+
+        // 同一 task 可能多次触发策略保存（重试/多轮），基于 strategy_id 做幂等更新
+        KbStrategyEntity existing = strategyRepo.selectOne(
+            new LambdaQueryWrapper<KbStrategyEntity>()
+                .eq(KbStrategyEntity::getStrategyId, strategy.getStrategyId()));
+        if (existing != null) {
+            existing.setTaskType(strategy.getTaskType());
+            existing.setQueryPattern(strategy.getQueryPattern());
+            existing.setSourceCombo(strategy.getSourceCombo());
+            existing.setSuccessScore(strategy.getSuccessScore());
+            existing.setCostMs(strategy.getCostMs());
+            strategyRepo.updateById(existing);
+            log.info("Strategy updated: id={}, user={}, type={}",
+                    strategy.getStrategyId(), strategy.getUserId(), strategy.getTaskType());
+            return existing;
+        }
+
         strategyRepo.insert(strategy);
         log.info("Strategy saved: id={}, user={}, type={}", strategy.getStrategyId(), strategy.getUserId(), strategy.getTaskType());
         return strategy;

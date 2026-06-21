@@ -32,6 +32,48 @@ from app.models.memory import MemoryType
 logger = logging.getLogger(__name__)
 
 
+async def _get_query_embedding(query: str) -> list[float] | None:
+    """Generate embedding vector for a user query.
+
+    Falls back to None if embedding service is unavailable.
+    Enhanced diagnostics: logs response details when embedding extraction fails.
+    """
+    try:
+        from app.layers.agent_core.model_client_manager import model_client_manager
+        from app.layers.agent_core.llm_router import llm_router
+
+        model_id = llm_router.MODEL_MAP.get("embedding", "text-embedding-3-small")
+        client, actual_model = await model_client_manager.get_client(model_id)
+        payload = {"model": actual_model, "input": query[:8000]}
+        resp = await client.post("/embeddings", json=payload, timeout=10.0)
+        resp.raise_for_status()
+        data = resp.json()
+        embeddings = data.get("data", [])
+        if embeddings:
+            embedding = embeddings[0].get("embedding")
+            if embedding is not None:
+                return embedding
+            logger.warning(
+                "Query embedding data[0].embedding is None: model=%s, keys_in_data0=%s, "
+                "full_data_sample=%s",
+                actual_model,
+                list(embeddings[0].keys()) if isinstance(embeddings[0], dict) else type(embeddings[0]),
+                str(data)[:500],
+            )
+        else:
+            logger.warning(
+                "Query embedding response missing 'data' array: model=%s, top_keys=%s, "
+                "response_sample=%s",
+                actual_model,
+                list(data.keys())[:10] if isinstance(data, dict) else type(data),
+                str(data)[:500],
+            )
+    except Exception as e:
+        logger.warning("Failed to generate query embedding: %s", e)
+    return None
+# #endregion
+
+
 # ---------------------------------------------------------------------------
 # Context section models
 # ---------------------------------------------------------------------------
@@ -77,25 +119,21 @@ class TokenBudget:
     """
 
     @classmethod
-    @property
     def SYSTEM_RATIO(cls) -> float:
         from app.config import settings
         return settings.memory_assemble_system_ratio
 
     @classmethod
-    @property
     def PROFILE_RATIO(cls) -> float:
         from app.config import settings
         return settings.memory_assemble_profile_ratio
 
     @classmethod
-    @property
     def EPISODIC_RATIO(cls) -> float:
         from app.config import settings
         return settings.memory_assemble_episodic_ratio
 
     @classmethod
-    @property
     def BUFFER_RATIO(cls) -> float:
         from app.config import settings
         return settings.memory_assemble_buffer_ratio
@@ -107,10 +145,10 @@ class TokenBudget:
         Returns dict mapping section_type -> token count.
         """
         return {
-            "system": int(total_budget * cls.SYSTEM_RATIO),
-            "profile": int(total_budget * cls.PROFILE_RATIO),
-            "episodic": int(total_budget * cls.EPISODIC_RATIO),
-            "buffer": int(total_budget * cls.BUFFER_RATIO),
+            "system": int(total_budget * cls.SYSTEM_RATIO()),
+            "profile": int(total_budget * cls.PROFILE_RATIO()),
+            "episodic": int(total_budget * cls.EPISODIC_RATIO()),
+            "buffer": int(total_budget * cls.BUFFER_RATIO()),
         }
 
 
@@ -204,7 +242,7 @@ class ContextAssembler:
             priority=4,
             content="",
             token_count=0,
-            budget_ratio=TokenBudget.BUFFER_RATIO,
+            budget_ratio=TokenBudget.BUFFER_RATIO(),
         )
         sections.append(buffer_section)
 
@@ -267,7 +305,7 @@ class ContextAssembler:
             from app.layers.agent_core.session_state_summary_manager import (
                 session_state_summary_manager,
             )
-            summary = await session_state_summary_manager.load_summary(
+            summary = await session_state_summary_manager.load_latest_summary(
                 user_id=user_id,
                 task_id=task_id,
             )
@@ -292,7 +330,7 @@ class ContextAssembler:
             priority=1,
             content=content,
             token_count=token_count,
-            budget_ratio=TokenBudget.SYSTEM_RATIO,
+            budget_ratio=TokenBudget.SYSTEM_RATIO(),
         )
 
     # ------------------------------------------------------------------
@@ -326,7 +364,7 @@ class ContextAssembler:
             priority=2,
             content=profile_text,
             token_count=token_count,
-            budget_ratio=TokenBudget.PROFILE_RATIO,
+            budget_ratio=TokenBudget.PROFILE_RATIO(),
         )
 
     # ------------------------------------------------------------------
@@ -351,7 +389,7 @@ class ContextAssembler:
                 priority=3,
                 content="",
                 token_count=0,
-                budget_ratio=TokenBudget.EPISODIC_RATIO,
+                budget_ratio=TokenBudget.EPISODIC_RATIO(),
             )
 
         # Search for relevant episodic memories
@@ -364,6 +402,11 @@ class ContextAssembler:
             from app.config import settings
             search_top_k = settings.memory_search_top_k
             search_min_similarity = settings.memory_search_min_similarity
+
+            # FIX: generate query embedding if not provided so episodic memory
+            # can be retrieved by semantic similarity in the ReAct flow.
+            if not query_vector and query:
+                query_vector = await _get_query_embedding(query)
 
             if query_vector:
                 results = await self._engine.hybrid_search(
@@ -390,7 +433,7 @@ class ContextAssembler:
                 priority=3,
                 content="",
                 token_count=0,
-                budget_ratio=TokenBudget.EPISODIC_RATIO,
+                budget_ratio=TokenBudget.EPISODIC_RATIO(),
             )
 
         # Format results in reverse chronological order
@@ -407,7 +450,7 @@ class ContextAssembler:
             priority=3,
             content=content,
             token_count=token_count,
-            budget_ratio=TokenBudget.EPISODIC_RATIO,
+            budget_ratio=TokenBudget.EPISODIC_RATIO(),
         )
 
     # ------------------------------------------------------------------

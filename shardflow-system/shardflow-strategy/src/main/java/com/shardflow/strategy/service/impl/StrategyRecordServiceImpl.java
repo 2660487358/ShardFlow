@@ -2,18 +2,20 @@ package com.shardflow.strategy.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.dto.strategy.*;
 import com.shardflow.common.entity.StrategyRecordEntity;
 import com.shardflow.strategy.repository.StrategyRecordRepository;
 import com.shardflow.strategy.service.StrategyRecordService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -24,12 +26,20 @@ import java.util.stream.Collectors;
 public class StrategyRecordServiceImpl implements StrategyRecordService {
 
     private final StrategyRecordRepository strategyRepository;
+    private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
 
     private static final BigDecimal MIN_SUCCESS_SCORE = BigDecimal.ZERO;
     private static final BigDecimal MAX_SUCCESS_SCORE = BigDecimal.ONE;
     private static final BigDecimal FEEDBACK_USEFUL_BONUS = new BigDecimal("0.05");
     private static final BigDecimal FEEDBACK_NEGATIVE_PENALTY = new BigDecimal("0.10");
+
+    /** Redis Key 模式：shardflow:{user_id}:strategy:{record_id} (G-5 路径修复) */
+    private static final String REDIS_KEY_RECORD = "shardflow:%s:strategy:%s";
+    /** Redis Key 模式：shardflow:{user_id}:strategy:search:{hash} */
+    private static final String REDIS_KEY_SEARCH = "shardflow:%s:strategy:search:%s";
+    private static final Duration REDIS_TTL_RECORD = Duration.ofMinutes(30);
+    private static final Duration REDIS_TTL_SEARCH = Duration.ofMinutes(10);
 
     @Override
     @Transactional
@@ -65,6 +75,9 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
 
         strategyRepository.insert(entity);
 
+        // 同步到 Redis 缓存（G-5 路径修复：写入后同步 L1）
+        syncRecordToRedis(entity);
+
         log.info("Strategy created: recordId={}, user={}, type={}, score={}",
                 entity.getRecordId(), entity.getUserId(), entity.getTaskType(), entity.getSuccessScore());
 
@@ -73,6 +86,14 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
 
     @Override
     public Optional<StrategySearchResponse.StrategyResultItem> getStrategy(String recordId) {
+        // G-5 路径修复：L1 Redis → L2 PostgreSQL 三级读取
+        // 先尝试 Redis 缓存
+        StrategyRecordEntity cached = loadRecordFromRedis(recordId);
+        if (cached != null) {
+            return Optional.of(toResultItem(cached));
+        }
+
+        // 回源 PG L2
         StrategyRecordEntity entity = strategyRepository.selectOne(
                 new LambdaQueryWrapper<StrategyRecordEntity>()
                         .eq(StrategyRecordEntity::getRecordId, recordId)
@@ -82,18 +103,31 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
             return Optional.empty();
         }
 
+        // 回填 Redis 缓存
+        syncRecordToRedis(entity);
         return Optional.of(toResultItem(entity));
     }
 
     @Override
     @Transactional
     public boolean deleteStrategy(String recordId) {
+        // 先查询以获取 userId 用于缓存失效
+        StrategyRecordEntity entity = strategyRepository.selectOne(
+                new LambdaQueryWrapper<StrategyRecordEntity>()
+                        .eq(StrategyRecordEntity::getRecordId, recordId)
+                        .eq(StrategyRecordEntity::getIsDeleted, false));
+
         int updated = strategyRepository.update(null,
                 new LambdaUpdateWrapper<StrategyRecordEntity>()
                         .eq(StrategyRecordEntity::getRecordId, recordId)
                         .set(StrategyRecordEntity::getIsDeleted, true));
 
         if (updated > 0) {
+            // 失效缓存
+            if (entity != null) {
+                invalidateRecordCache(entity.getUserId(), recordId);
+                invalidateSearchCache(entity.getUserId());
+            }
             log.info("Strategy soft-deleted: recordId={}", recordId);
             return true;
         }
@@ -104,6 +138,17 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
     @SuppressWarnings("unchecked")
     public StrategySearchResponse searchStrategy(StrategySearchRequest request) {
         long startTime = System.currentTimeMillis();
+
+        // G-5 路径修复：尝试 Redis 搜索缓存
+        String searchHash = buildSearchHash(request);
+        String userId = request.getUserId();
+        if (userId != null && !userId.isBlank() && searchHash != null) {
+            StrategySearchResponse cached = loadSearchFromRedis(userId, searchHash);
+            if (cached != null) {
+                log.debug("Strategy search cache hit: user={}, hash={}", userId, searchHash);
+                return cached;
+            }
+        }
 
         LambdaQueryWrapper<StrategyRecordEntity> wrapper = new LambdaQueryWrapper<StrategyRecordEntity>()
                 .eq(StrategyRecordEntity::getIsDeleted, false);
@@ -139,6 +184,11 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
         response.setResults(results);
         response.setTotal(results.size());
         response.setSearchTimeMs(elapsedMs);
+
+        // 回填搜索缓存
+        if (userId != null && !userId.isBlank() && searchHash != null) {
+            syncSearchToRedis(userId, searchHash, response);
+        }
 
         return response;
     }
@@ -187,6 +237,10 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
                         .eq(StrategyRecordEntity::getRecordId, request.getRecordId())
                         .set(StrategyRecordEntity::getSuccessScore, newScore)
                         .set(StrategyRecordEntity::getUserFeedback, toJson(feedback)));
+
+        // 失效缓存（评分变更后缓存已过期）
+        invalidateRecordCache(entity.getUserId(), request.getRecordId());
+        invalidateSearchCache(entity.getUserId());
 
         log.info("Feedback applied: recordId={}, tool={}, feedback={}, newScore={}",
                 request.getRecordId(), request.getToolName(), request.getFeedback(), newScore);
@@ -306,7 +360,7 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
                         objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class));
                 item.setToolCombo(comboList);
             }
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to parse tool_combo JSON for record {}: {}", entity.getRecordId(), e.getMessage());
             item.setToolCombo(List.of());
         }
@@ -320,7 +374,7 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
         }
         try {
             return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize object to JSON", e);
             return "{}";
         }
@@ -333,9 +387,117 @@ public class StrategyRecordServiceImpl implements StrategyRecordService {
         }
         try {
             return objectMapper.readValue(json, Map.class);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to parse JSON to Map: {}", e.getMessage());
             return new HashMap<>();
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Redis 缓存（G-5 路径修复：L1 Redis → L2 PostgreSQL）
+    // ------------------------------------------------------------------
+
+    private void syncRecordToRedis(StrategyRecordEntity entity) {
+        try {
+            String key = String.format(REDIS_KEY_RECORD, entity.getUserId(), entity.getRecordId());
+            String json = objectMapper.writeValueAsString(entity);
+            redisTemplate.opsForValue().set(key, json, REDIS_TTL_RECORD);
+            log.debug("Synced strategy to Redis: key={}", key);
+        } catch (Exception e) {
+            log.warn("Failed to sync strategy to Redis: {}", e.getMessage());
+        }
+    }
+
+    private StrategyRecordEntity loadRecordFromRedis(String recordId) {
+        // 由于不知道 userId，使用 SCAN 查找 key
+        // 模式：shardflow:*:strategy:{recordId}
+        try (org.springframework.data.redis.core.Cursor<byte[]> cursor = redisTemplate.getConnectionFactory()
+                .getConnection()
+                .keyCommands()
+                .scan(org.springframework.data.redis.core.ScanOptions.scanOptions()
+                        .match("shardflow:*:strategy:" + recordId)
+                        .count(100L)
+                        .build())) {
+            while (cursor.hasNext()) {
+                String key = new String(cursor.next());
+                Object raw = redisTemplate.opsForValue().get(key);
+                if (raw instanceof String json) {
+                    return objectMapper.readValue(json, StrategyRecordEntity.class);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Redis cache miss for strategy {}: {}", recordId, e.getMessage());
+        }
+        return null;
+    }
+
+    private void invalidateRecordCache(String userId, String recordId) {
+        try {
+            String key = String.format(REDIS_KEY_RECORD, userId, recordId);
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("Failed to invalidate strategy cache: {}", e.getMessage());
+        }
+    }
+
+    private void invalidateSearchCache(String userId) {
+        try {
+            // 删除该用户的所有搜索缓存
+            String pattern = String.format("shardflow:%s:strategy:search:*", userId);
+            try (org.springframework.data.redis.core.Cursor<byte[]> cursor = redisTemplate.getConnectionFactory()
+                    .getConnection()
+                    .keyCommands()
+                    .scan(org.springframework.data.redis.core.ScanOptions.scanOptions()
+                            .match(pattern)
+                            .count(100L)
+                            .build())) {
+                java.util.List<String> keys = new java.util.ArrayList<>();
+                while (cursor.hasNext()) {
+                    keys.add(new String(cursor.next()));
+                }
+                if (!keys.isEmpty()) {
+                    redisTemplate.delete(keys);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to invalidate strategy search cache: {}", e.getMessage());
+        }
+    }
+
+    private String buildSearchHash(StrategySearchRequest request) {
+        try {
+            Map<String, Object> keyParts = new HashMap<>();
+            keyParts.put("user_id", request.getUserId());
+            keyParts.put("task_type", request.getTaskType());
+            keyParts.put("top_k", request.getTopK());
+            String json = objectMapper.writeValueAsString(keyParts);
+            // 简单哈希：使用字符串的 hashCode
+            return Integer.toHexString(json.hashCode());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void syncSearchToRedis(String userId, String searchHash, StrategySearchResponse response) {
+        try {
+            String key = String.format(REDIS_KEY_SEARCH, userId, searchHash);
+            String json = objectMapper.writeValueAsString(response);
+            redisTemplate.opsForValue().set(key, json, REDIS_TTL_SEARCH);
+        } catch (Exception e) {
+            log.warn("Failed to sync strategy search to Redis: {}", e.getMessage());
+        }
+    }
+
+    private StrategySearchResponse loadSearchFromRedis(String userId, String searchHash) {
+        try {
+            String key = String.format(REDIS_KEY_SEARCH, userId, searchHash);
+            Object raw = redisTemplate.opsForValue().get(key);
+            if (raw instanceof String json) {
+                return objectMapper.readValue(json, StrategySearchResponse.class);
+            }
+        } catch (Exception e) {
+            log.debug("Redis search cache miss for user={} hash={}: {}", userId, searchHash, e.getMessage());
+        }
+        return null;
     }
 }

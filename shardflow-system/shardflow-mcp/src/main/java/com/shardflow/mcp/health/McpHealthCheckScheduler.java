@@ -1,8 +1,8 @@
 package com.shardflow.mcp.health;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.config.McpRedisConstants;
 import com.shardflow.common.entity.McpToolEntity;
 import com.shardflow.mcp.health.McpHealthChecker.HealthCheckResult;
@@ -327,7 +327,7 @@ public class McpHealthCheckScheduler {
             // EXPIRE 刷新 TTL
             redisTemplate.expire(hashKey, Duration.ofSeconds(McpRedisConstants.TOOL_STATES_TTL_SECONDS));
 
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to update health in Hash for tool {}: {}", tool.getToolId(), e.getMessage());
         }
     }

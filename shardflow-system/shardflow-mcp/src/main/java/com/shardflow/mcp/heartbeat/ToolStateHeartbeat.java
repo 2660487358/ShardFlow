@@ -1,7 +1,7 @@
 package com.shardflow.mcp.heartbeat;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.config.McpRedisConstants;
 import com.shardflow.common.entity.McpToolEntity;
 import com.shardflow.mcp.repository.McpToolRepository;
@@ -89,7 +89,7 @@ public class ToolStateHeartbeat {
             }
             redisTemplate.expire(hashKey, Duration.ofSeconds(McpRedisConstants.TOOL_STATES_TTL_SECONDS));
             log.info("Rebuilt Hash key {} with {} tools", hashKey, tools.size());
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to serialize state snapshot for {}: {}", hashKey, e.getMessage());
         } catch (Exception e) {
             log.error("Failed to rebuild Hash key {}: {}", hashKey, e.getMessage());

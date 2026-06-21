@@ -387,15 +387,21 @@ class MCPClient:
         user_id: str | None,
         session_id: str | None,
     ) -> None:
-        """调用结果审计回调（FR-INVOKE-005）。"""
+        """调用结果审计回调（FR-INVOKE-005 / CB-10）。
+
+        S3.7: tool_execution_logs 由 Python 写入 PG（通过回调 Java）
+        S3.10: 幂等机制 — X-Request-ID + X-Trace-ID 头部
+        """
         try:
             from app.infrastructure.callback_client import callback_client
 
             trace_id = uuid.uuid4().hex[:16]
             span_id = uuid.uuid4().hex[:8]
+            # S3.10: request_id 作为幂等键，格式: trace_id-span_id
+            request_id = f"{trace_id}-{span_id}"
 
             audit_data = {
-                "idempotency_key": f"{trace_id}-{span_id}",
+                "idempotency_key": request_id,  # S3.10: 幂等键
                 "trace_id": trace_id,
                 "span_id": span_id,
                 "user_id": user_id or "unknown",
@@ -413,7 +419,12 @@ class MCPClient:
                 "request_at": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
             }
 
-            await callback_client.write_mcp_audit(audit_data)
+            # S3.7/S3.10: 传递 request_id 和 trace_id 作为头部（CB-10 合规）
+            await callback_client.write_mcp_audit(
+                audit_data,
+                request_id=request_id,
+                trace_id=trace_id,
+            )
         except Exception as e:
             logger.debug(f"MCP audit callback failed (non-blocking): {e}")
 

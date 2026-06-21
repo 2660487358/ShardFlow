@@ -62,6 +62,7 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
     streamingPhase, setStreamingPhase,
     abortController, setAbortController,
     activeTaskId, activeSessionId, updateMessage,
+    setActiveTask,
     kbSearchResults, clearKbSearchResults,
     kbActiveMount, setKbActiveMount, kbCollections, setKbCollections,
     setContextPressure,
@@ -191,6 +192,18 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
         const phaseLabel = PHASE_LABELS[event.type];
         if (phaseLabel) {
           setCurrentPhaseLabel(phaseLabel);
+        }
+
+        // T1.3: 接收后端 SSE 首事件 session_info，持久化到 sessionStorage（T4.1 Tab 隔离）
+        // 确保后续请求复用同一 session_id，避免每轮创建新 session
+        if (event.type === 'session_info') {
+          const sid = data.session_id as string | undefined;
+          const tid = (data.task_id as string | undefined) || effectiveTaskId;
+          if (sid) {
+            // setActiveTask 内部已写入 sessionStorage，无需重复写入
+            setActiveTask(tid || sid, sid);
+          }
+          return;
         }
 
         if (event.type === 'intent') {
@@ -1030,6 +1043,30 @@ export default function ChatPanel({ onLoginRequired, isAuthenticated }: Props) {
                       transition: 'color 0.2s ease',
                     }}
                   />
+                  {/* T4.4: 复制当前对话到新标签页 —— 多 Tab 协同同一 session */}
+                  {isAuthenticated && activeSessionId && (
+                    <Tooltip title="在新标签页打开当前对话" placement="top">
+                      <Button
+                        type="text"
+                        icon={<LinkOutlined />}
+                        onClick={() => {
+                          const url = `/chat/${activeSessionId}`;
+                          window.open(url, '_blank');
+                        }}
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 10,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          color: 'var(--ink-faint)',
+                          fontSize: 16,
+                        }}
+                      />
+                    </Tooltip>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -127,7 +127,14 @@ class SemanticMemoryManager:
     1. Explicit confirmation: user directly states a preference
     2. NER extraction: key entities identified from conversation
     3. Multi-interaction inference: patterns deduced from repeated behaviors
+
+    S5.1: Multi-interaction inference state (_mention_tracker) is persisted
+    to Redis so that inference counts survive service restarts.
     """
+
+    # S5.1: Redis key pattern for persisting mention tracker
+    MENTION_TRACKER_REDIS_KEY = "shardflow:{user_id}:mention_tracker"
+    MENTION_TRACKER_TTL = 86400 * 30  # 30 days
 
     def __init__(self) -> None:
         # Track per-user mention counts for inference mode
@@ -161,7 +168,7 @@ class SemanticMemoryManager:
         all_facts.extend(ner_facts)
 
         # Mode 3: Multi-interaction inference
-        inferred_facts = self._extract_inferred(user_id, messages, session_id)
+        inferred_facts = await self._extract_inferred(user_id, messages, session_id)
         all_facts.extend(inferred_facts)
 
         # Deduplicate and classify confidence
@@ -410,7 +417,7 @@ class SemanticMemoryManager:
     # Mode 3: Multi-interaction inference
     # ------------------------------------------------------------------
 
-    def _extract_inferred(
+    async def _extract_inferred(
         self,
         user_id: str,
         messages: list[dict[str, Any]],
@@ -420,11 +427,20 @@ class SemanticMemoryManager:
 
         Tracks how often certain topics/tools/behaviors appear in user messages.
         When a pattern exceeds the inference threshold, it's promoted to a fact.
+
+        S5.1: Mention tracker state is persisted to Redis so that inference
+        counts survive service restarts and accumulate across sessions.
         """
         facts: list[ExtractedFact] = []
 
+        # S5.1: Load persisted mention tracker from Redis
+        tracker = await self._load_mention_tracker(user_id)
         if user_id not in self._mention_tracker:
             self._mention_tracker[user_id] = {}
+        # Merge persisted counts with in-memory counts
+        for key, count in tracker.items():
+            current = self._mention_tracker[user_id].get(key, 0)
+            self._mention_tracker[user_id][key] = max(current, count)
 
         tracker = self._mention_tracker[user_id]
 
@@ -445,6 +461,9 @@ class SemanticMemoryManager:
                     key = f"tool_usage:{tool}"
                     tracker[key] = tracker.get(key, 0) + 1
 
+        # S5.1: Persist updated mention tracker to Redis
+        await self._save_mention_tracker(user_id, tracker)
+
         # Check for patterns that exceed the inference threshold
         for key, count in tracker.items():
             if count >= self.INFERENCE_THRESHOLD and key.startswith("tool_usage:"):
@@ -461,6 +480,38 @@ class SemanticMemoryManager:
                     ))
 
         return facts
+
+    # ------------------------------------------------------------------
+    # S5.1: Mention tracker persistence helpers
+    # ------------------------------------------------------------------
+
+    async def _load_mention_tracker(self, user_id: str) -> dict[str, int]:
+        """S5.1: Load mention tracker from Redis for cross-session persistence."""
+        try:
+            import json
+            from app.infrastructure.redis_client import redis_client
+            r = await redis_client.get_redis()
+            key = self.MENTION_TRACKER_REDIS_KEY.format(user_id=user_id)
+            raw = await r.get(key)
+            if raw is None:
+                return {}
+            data = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+            return {k: int(v) for k, v in data.items() if isinstance(v, (int, float))}
+        except Exception as e:
+            logger.debug("Failed to load mention tracker for user %s: %s", user_id, e)
+            return {}
+
+    async def _save_mention_tracker(self, user_id: str,
+                                    tracker: dict[str, int]) -> None:
+        """S5.1: Persist mention tracker to Redis for cross-session persistence."""
+        try:
+            import json
+            from app.infrastructure.redis_client import redis_client
+            r = await redis_client.get_redis()
+            key = self.MENTION_TRACKER_REDIS_KEY.format(user_id=user_id)
+            await r.set(key, json.dumps(tracker), ex=self.MENTION_TRACKER_TTL)
+        except Exception as e:
+            logger.debug("Failed to save mention tracker for user %s: %s", user_id, e)
 
     # ------------------------------------------------------------------
     # Deduplication
@@ -625,6 +676,126 @@ class SemanticMemoryManager:
         return await self.search_facts(
             user_id, min_confidence=min_confidence, limit=100,
         )
+
+    # ------------------------------------------------------------------
+    # S3.4: Profile patch generation
+    # ------------------------------------------------------------------
+
+    async def generate_profile_patch(
+        self,
+        user_id: str,
+        facts: list[ExtractedFact] | None = None,
+        min_confidence: float = 0.7,
+    ) -> dict[str, Any]:
+        """S3.4: Generate a user profile patch from extracted semantic facts.
+
+        Converts high/medium confidence facts into a structured profile patch
+        that can be applied to UserProfileManager.evolve_profile().
+
+        Patch structure:
+        {
+            "user_id": "u_xxx",
+            "expertise_level": "advanced" | "intermediate" | "beginner",
+            "communication_style": "concise" | "detailed" | "technical",
+            "preferences": [{"key": "...", "value": "...", "confidence": 0.9}],
+            "profile_attributes": [{"key": "...", "value": "...", "confidence": 0.8}],
+            "frequent_tools": ["web_search", "code_analysis"],
+            "patch_version": 1,
+            "generated_at": "2026-07-XX..."
+        }
+
+        Args:
+            user_id: User identifier
+            facts: Pre-extracted facts; if None, loads from memory store
+            min_confidence: Minimum confidence threshold (default 0.7 = medium+)
+
+        Returns:
+            Profile patch dict ready for UserProfileManager.evolve_profile()
+        """
+        # Load facts if not provided
+        if facts is None:
+            fact_dicts = await self.get_user_facts(user_id, min_confidence=min_confidence)
+            facts = [ExtractedFact(**f) for f in fact_dicts if isinstance(f, dict)]
+
+        # Filter by confidence
+        eligible_facts = [f for f in facts if f.confidence >= min_confidence]
+
+        # Build patch structure
+        preferences: list[dict[str, Any]] = []
+        profile_attributes: list[dict[str, Any]] = []
+        frequent_tools: list[str] = []
+        expertise_level = ""
+        communication_style = ""
+
+        for fact in eligible_facts:
+            structured = fact.structured or {}
+
+            # Extract expertise level
+            if "expertise" in structured and not expertise_level:
+                expertise_level = structured["expertise"]
+
+            # Extract communication style
+            if "communication_style" in structured and not communication_style:
+                communication_style = structured["communication_style"]
+
+            # Extract frequent tools
+            if "frequent_tool" in structured:
+                tool = structured["frequent_tool"]
+                if tool not in frequent_tools:
+                    frequent_tools.append(tool)
+
+            # Categorize into preferences or profile attributes
+            if fact.category == "preference":
+                preferences.append({
+                    "key": fact.text[:80],
+                    "value": structured.get("value", fact.text),
+                    "confidence": fact.confidence,
+                    "source": fact.source,
+                })
+            elif fact.category == "profile":
+                profile_attributes.append({
+                    "key": fact.text[:80],
+                    "value": structured.get("value", fact.text),
+                    "confidence": fact.confidence,
+                    "source": fact.source,
+                })
+
+        patch = {
+            "user_id": user_id,
+            "expertise_level": expertise_level,
+            "communication_style": communication_style,
+            "preferences": preferences,
+            "profile_attributes": profile_attributes,
+            "frequent_tools": frequent_tools,
+            "patch_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "fact_count": len(eligible_facts),
+        }
+
+        logger.info(
+            "S3.4: Generated profile patch for user %s: %d prefs, %d attrs, %d tools",
+            user_id, len(preferences), len(profile_attributes), len(frequent_tools),
+        )
+
+        return patch
+
+    async def apply_profile_patch(self, user_id: str, patch: dict[str, Any] | None = None) -> bool:
+        """S3.4: Apply a profile patch to UserProfileManager.
+
+        If patch is None, generates one from current facts first.
+        Returns True if applied successfully.
+        """
+        if patch is None:
+            patch = await self.generate_profile_patch(user_id)
+
+        try:
+            from app.layers.agent_core.user_profile_manager import user_profile_manager
+            await user_profile_manager.evolve_profile(user_id, patch)
+            logger.info("S3.4: Profile patch applied for user %s", user_id)
+            return True
+        except Exception as e:
+            logger.warning("S3.4: Failed to apply profile patch: %s", e)
+            return False
 
 
 # Global singleton

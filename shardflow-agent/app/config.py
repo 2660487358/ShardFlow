@@ -106,9 +106,15 @@ class Settings(BaseSettings):
     # 总开关
     memory_enabled: bool = True
 
-    # 对话窗口
-    memory_window_size: int = 4
+    # 对话窗口（4轮 × 2条/轮 = 8条消息）
+    memory_window_size: int = 8
     memory_max_context_tokens: int = 128000
+
+    # 阶段3 P1: L2 概念摘要触发配置
+    # 溢出批量压缩阈值：当溢出消息数 >= memory_compress_batch 时触发增量压缩
+    memory_compress_batch: int = 4
+    # 压缩异步执行开关：True 时 add_message 异步触发压缩，不阻塞首 token
+    memory_compress_async: bool = True
 
     # 压缩与分片阈值
     memory_compress_threshold: float = 0.80

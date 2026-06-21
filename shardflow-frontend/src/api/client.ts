@@ -343,6 +343,84 @@ export async function createTask(title: string): Promise<{ task_id: string }> {
   return data;
 }
 
+// ---- Session Lifecycle API (阶段2 P1) ----
+
+export interface SessionInitResult {
+  session_id: string;
+  task_id: string;
+  created_at: string;
+  expires_at: string;
+  ttl_seconds: number;
+}
+
+/**
+ * T2.1/T2.3: 预创建 Session，用户进入 Chat 页即可获取 session_id。
+ * 失败时前端降级为首条消息由 /conversation 兜底创建。
+ */
+export async function initSession(params?: {
+  task_id?: string;
+  title?: string;
+  source_port?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<SessionInitResult> {
+  const { data } = await api.post('/sessions/init', {
+    task_id: params?.task_id || '',
+    title: params?.title || '',
+    source_port: params?.source_port || 'web',
+    metadata: params?.metadata || {},
+  });
+  const inner = data.data || data;
+  return inner as SessionInitResult;
+}
+
+export interface SessionMessageItem {
+  msg_id: string;
+  role: string;
+  content: string;
+  timestamp: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface SessionMessagesResult {
+  session_id: string;
+  messages: SessionMessageItem[];
+  has_more: boolean;
+  next_before_msg_id: string | null;
+}
+
+/**
+ * T2.4/T2.5: 获取 session 历史消息，支持分页和 user_id 鉴权。
+ */
+export async function fetchSessionMessages(
+  sessionId: string,
+  params?: { limit?: number; before_msg_id?: string },
+): Promise<SessionMessagesResult> {
+  const { data } = await api.get(`/sessions/${sessionId}/messages`, {
+    params: {
+      limit: params?.limit ?? 50,
+      before_msg_id: params?.before_msg_id ?? '',
+    },
+  });
+  const inner = data.data || data;
+  return inner as SessionMessagesResult;
+}
+
+export interface SessionExpiryResult {
+  expired: boolean;
+  expiring_soon: boolean;
+  expires_at: string;
+  remaining_seconds: number;
+}
+
+/**
+ * T2.6: 查询 session 过期状态。
+ */
+export async function fetchSessionExpiry(sessionId: string): Promise<SessionExpiryResult> {
+  const { data } = await api.get(`/sessions/${sessionId}/expiry`);
+  const inner = data.data || data;
+  return inner as SessionExpiryResult;
+}
+
 // ---- Shard API ----
 
 export async function fetchShard(taskId: string): Promise<unknown> {

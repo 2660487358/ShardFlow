@@ -1,8 +1,8 @@
 package com.shardflow.callback.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.memory.repository.AuditLogRepository;
 import com.shardflow.shard.service.SessionStateSummaryService;
 import com.shardflow.profile.service.UserProfileService;
@@ -14,6 +14,7 @@ import com.shardflow.common.dto.profile.UserProfileUpdateResponse;
 import com.shardflow.common.dto.memory.MemoryCreateResponse;
 import com.shardflow.common.dto.strategy.StrategyCreateResponse;
 import com.shardflow.strategy.service.StrategyRecordService;
+import com.shardflow.kb.service.KbShardService;
 import com.shardflow.task.repository.TaskRepository;
 import com.shardflow.callback.service.CallbackService;
 import com.shardflow.common.entity.*;
@@ -40,6 +41,7 @@ public class CallbackServiceImpl implements CallbackService {
     private final UserProfileService profileService;
     private final MemoryChunkService memoryService;
     private final StrategyRecordService strategyService;
+    private final KbShardService kbShardService;
 
     @Override
     @Transactional
@@ -66,6 +68,15 @@ public class CallbackServiceImpl implements CallbackService {
         audit.setError((String) body.get("error"));
         Object latency = body.get("latency_ms");
         if (latency instanceof Number) audit.setLatencyMs(((Number) latency).longValue());
+
+        // S4.9 新增字段填充
+        audit.setTraceId((String) body.get("trace_id"));
+        audit.setSessionId((String) body.get("session_id"));
+        audit.setOperationType((String) body.get("operation_type"));
+        audit.setResourceType((String) body.get("resource_type"));
+        audit.setResourceId((String) body.get("resource_id"));
+        audit.setIpAddress((String) body.get("ip_address"));
+
         auditLogRepository.insert(audit);
         return Map.of("success", true);
     }
@@ -248,9 +259,78 @@ public class CallbackServiceImpl implements CallbackService {
     private String toJson(Object obj) {
         try {
             return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize object to JSON", e);
             return "{}";
         }
+    }
+
+    // ===== S4.6 新增回调接口实现 =====
+
+    /**
+     * CB-08: 记忆删除回调。
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> deleteMemory(String userId, String key) {
+        boolean deleted = memoryService.deleteMemory(key);
+        log.info("Memory deleted via callback: userId={}, key={}, success={}", userId, key, deleted);
+        return Map.of("success", deleted, "key", key);
+    }
+
+    /**
+     * CB-09: 会话摘要回调。
+     * Python 生成摘要后回调 Java 异步归档 PG。
+     *
+     * 注意：session:{session_id}:summary 与 session:{session_id}:summary:version
+     * 的写入主权端为 Python（Redis-Key 规范 §3.1），Java 端仅通过 SummaryArchiveScheduler
+     * 扫描归档 PG L2，不在此处写入 Redis，避免覆盖 Python 写入的完整摘要 JSON。
+     */
+    @Override
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> saveSessionSummary(Map<String, Object> body) {
+        String sessionId = (String) body.get("session_id");
+        String userId = (String) body.get("user_id");
+        Object versionObj = body.get("version");
+        Integer version = (versionObj instanceof Number n) ? n.intValue() : null;
+
+        log.info("Session summary callback received: sessionId={}, userId={}, version={}. "
+                + "Redis L1 is owned by Python; archive to PG will be done by SummaryArchiveScheduler.",
+                sessionId, userId, version);
+        return Map.of("archived", true, "version", version != null ? version : 0);
+    }
+
+    /**
+     * CB-11: 策略删除回调。
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> deleteStrategy(String recordId) {
+        boolean deleted = strategyService.deleteStrategy(recordId);
+        log.info("Strategy deleted via callback: recordId={}, success={}", recordId, deleted);
+        return Map.of("success", deleted, "record_id", recordId);
+    }
+
+    /**
+     * CB-12: 策略保存回调（显式 save 路径）。
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> saveStrategy(Map<String, Object> body) {
+        // 与 saveStrategyRecord 功能一致，路径统一
+        return saveStrategyRecord(body);
+    }
+
+    /**
+     * KB Shard 状态包回调（C-4.5）。
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> saveKbShard(Map<String, Object> body) {
+        Map<String, Object> result = kbShardService.saveFromCallback(body);
+        log.info("KB shard saved via callback: shardId={}, status={}",
+                result.get("shard_id"), result.get("status"));
+        return result;
     }
 }

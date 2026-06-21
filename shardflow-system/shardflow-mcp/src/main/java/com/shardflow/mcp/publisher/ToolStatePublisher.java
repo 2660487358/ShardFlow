@@ -1,7 +1,7 @@
 package com.shardflow.mcp.publisher;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.config.McpRedisConstants;
 import com.shardflow.common.entity.McpToolEntity;
 import com.shardflow.usercontext.context.UserContext;
@@ -66,7 +66,7 @@ public class ToolStatePublisher {
 
             log.debug("Published state change for tool {}: {} -> Hash key: {}",
                 tool.getToolId(), tool.getStatus(), hashKey);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to serialize tool state for publishing: toolId={}", tool.getToolId(), e);
         }
     }

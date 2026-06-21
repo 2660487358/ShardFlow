@@ -567,7 +567,10 @@ class MemoryConflictResolver:
             logger.warning("Failed to update access count for %s: %s", key, e)
 
     def _log_conflict(self, record: ConflictRecord) -> None:
-        """Log a conflict record."""
+        """Log a conflict record.
+
+        S5.7: Also emits audit event for conflict resolution.
+        """
         self._conflict_log.append(record)
         if len(self._conflict_log) > self._max_log_size:
             self._conflict_log = self._conflict_log[-self._max_log_size:]
@@ -577,6 +580,31 @@ class MemoryConflictResolver:
             record.user_id, record.conflict_type, record.resolution,
             record.resolution_reason,
         )
+
+        # S5.7: Audit conflict resolution (non-blocking)
+        try:
+            import asyncio
+            from app.layers.security.audit_logger import audit_logger
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(audit_logger.log(
+                    event_type="memory_conflict_resolve",
+                    user_id=record.user_id,
+                    session_id="",
+                    task_id="",
+                    details={
+                        "conflict_id": record.conflict_id,
+                        "existing_memory_id": record.existing_memory_id,
+                        "conflict_type": record.conflict_type,
+                        "resolution": record.resolution,
+                        "resolution_reason": record.resolution_reason,
+                        "existing_confidence": record.existing_confidence,
+                        "new_confidence": record.new_confidence,
+                    },
+                    severity="INFO",
+                ))
+        except Exception as e:
+            logger.debug("Audit conflict resolve failed (non-blocking): %s", e)
 
     # ------------------------------------------------------------------
     # Query conflict history

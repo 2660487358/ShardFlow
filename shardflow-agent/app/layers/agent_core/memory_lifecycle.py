@@ -56,7 +56,10 @@ class MemoryLifecycle:
     # ------------------------------------------------------------------
 
     async def archive_session(self, user_id: str, session_id: str) -> bool:
-        """Archive a SHORT_TERM session to SESSION_SUMMARY."""
+        """Archive a SHORT_TERM session to SESSION_SUMMARY.
+
+        S5.7: Emits audit event for archive operation.
+        """
         from app.layers.agent_core.memory_orchestrator import memory_orchestrator
 
         session = await memory_orchestrator.read(user_id, MemoryType.SHORT_TERM, session_id)
@@ -72,6 +75,14 @@ class MemoryLifecycle:
         }
         await memory_orchestrator.write(user_id, MemoryType.SESSION_SUMMARY, task_id, shard_data)
         await memory_orchestrator.delete(user_id, MemoryType.SHORT_TERM, session_id)
+
+        # S5.7: Audit archive operation
+        await self._audit_lifecycle_op(
+            user_id=user_id,
+            operation="archive_session",
+            target_id=session_id,
+            details={"task_id": task_id, "archived_to": "SESSION_SUMMARY"},
+        )
         return True
 
     # ------------------------------------------------------------------
@@ -83,6 +94,8 @@ class MemoryLifecycle:
 
         Scans across all users and memory types. Returns total number of
         deleted records.
+
+        S5.7: Emits audit event for batch cleanup operation.
         """
         from app.infrastructure.redis_client import redis_client
         from app.layers.agent_core.memory_orchestrator import memory_orchestrator
@@ -139,7 +152,39 @@ class MemoryLifecycle:
 
         if deleted_total > 0:
             logger.info("Memory cleanup: deleted %d expired records", deleted_total)
+            # S5.7: Audit batch cleanup operation
+            await self._audit_lifecycle_op(
+                user_id="system",
+                operation="cleanup_expired",
+                target_id="batch",
+                details={"deleted_count": deleted_total},
+            )
         return deleted_total
+
+    # ------------------------------------------------------------------
+    # S5.7: Audit helper for lifecycle operations
+    # ------------------------------------------------------------------
+
+    async def _audit_lifecycle_op(self, user_id: str, operation: str,
+                                  target_id: str = "",
+                                  details: dict[str, Any] | None = None) -> None:
+        """S5.7: Audit lifecycle operations (cleanup, archive) per FR-EM-003."""
+        try:
+            from app.layers.security.audit_logger import audit_logger
+            await audit_logger.log(
+                event_type=f"memory_{operation}",
+                user_id=user_id,
+                session_id="",
+                task_id="",
+                details={
+                    "target_memory_id": target_id,
+                    "operation": operation,
+                    **(details or {}),
+                },
+                severity="INFO",
+            )
+        except Exception as e:
+            logger.debug("Audit lifecycle op failed (non-blocking): %s", e)
 
     # ------------------------------------------------------------------
     # Background cleanup loop

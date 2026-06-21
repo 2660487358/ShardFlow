@@ -26,9 +26,14 @@ async def test_composite_write_broadcasts_to_l0():
     mock_redis.get.return_value = None
     mock_redis.set.return_value = None
 
+    async def _fake_l2_write(user_id, memory_type, key, data, ttl_seconds=0):
+        from app.models.memory import MemoryRecord
+        from datetime import datetime, timezone
+        return MemoryRecord(key=key, user_id=user_id, memory_type=memory_type, data=data, updated_at=datetime.now(timezone.utc))
+
     with (
         patch("app.infrastructure.redis_client.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
-        patch("app.infrastructure.callback_client.callback_client.save_shard", AsyncMock(return_value={"ok": True})),
+        patch.object(adapter._l2, "write", side_effect=_fake_l2_write),
     ):
         record = await adapter.write("u1", MemoryType.SESSION_SUMMARY, "k1", {"v": "written"})
 

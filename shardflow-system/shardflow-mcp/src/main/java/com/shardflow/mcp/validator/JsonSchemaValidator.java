@@ -1,18 +1,19 @@
 package com.shardflow.mcp.validator;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.networknt.schema.JsonSchema;
-import com.networknt.schema.JsonSchemaFactory;
-import com.networknt.schema.SpecVersion;
-import com.networknt.schema.ValidationMessage;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import com.networknt.schema.Error;
+import com.networknt.schema.Schema;
+import com.networknt.schema.SchemaLocation;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SpecificationVersion;
+import com.networknt.schema.dialect.Dialects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * JSON Schema 校验器.
@@ -39,11 +40,10 @@ public class JsonSchemaValidator {
         }
         try {
             JsonNode schemaNode = objectMapper.valueToTree(schemaMap);
-            JsonSchemaFactory factory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7);
-            // 用 Draft-7 meta-schema 校验用户 Schema 的结构合法性
-            JsonSchema metaSchema = factory.getSchema(SpecVersion.VersionFlag.V7.getId());
-            Set<ValidationMessage> messages = metaSchema.validate(schemaNode);
-            for (ValidationMessage msg : messages) {
+            SchemaRegistry registry = SchemaRegistry.withDialect(Dialects.getDraft7());
+            Schema metaSchema = registry.getSchema(SchemaLocation.of(SpecificationVersion.DRAFT_7.getDialectId()));
+            List<Error> messages = metaSchema.validate(schemaNode);
+            for (Error msg : messages) {
                 errors.add(fieldName + ": " + msg.getMessage());
             }
         } catch (Exception e) {

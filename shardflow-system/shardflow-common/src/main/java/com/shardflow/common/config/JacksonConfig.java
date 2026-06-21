@@ -1,7 +1,7 @@
 package com.shardflow.common.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,9 +10,8 @@ public class JacksonConfig {
 
     @Bean
     public ObjectMapper objectMapper() {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.findAndRegisterModules();
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return mapper;
+        // Jackson 3 默认 WRITE_DATES_AS_TIMESTAMPS=false（ISO-8601 字符串），
+        // 无需再显式禁用；JavaTimeModule 已内置，无需手动注册
+        return JsonMapper.builder().build();
     }
 }

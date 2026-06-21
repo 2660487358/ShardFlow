@@ -2,8 +2,8 @@ package com.shardflow.shard.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.dto.session.SessionSummaryCreateRequest;
 import com.shardflow.common.dto.session.SessionSummaryCreateResponse;
 import com.shardflow.common.entity.SessionStateSummaryEntity;
@@ -189,7 +189,7 @@ public class SessionStateSummaryServiceImpl implements SessionStateSummaryServic
             String json = objectMapper.writeValueAsString(entity);
             redisTemplate.opsForValue().set(key, json, REDIS_TTL);
             log.debug("Synced summary to Redis: key={}", key);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to sync summary to Redis: {}", e.getMessage());
         }
     }
@@ -251,7 +251,7 @@ public class SessionStateSummaryServiceImpl implements SessionStateSummaryServic
         if (obj == null) return "{}";
         try {
             return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize object to JSON", e);
             return "{}";
         }

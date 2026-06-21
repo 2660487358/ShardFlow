@@ -10,11 +10,11 @@
     <dependencies>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-common</artifactId></dependency>
         <dependency><groupId>com.shardflow</groupId><artifactId>shardflow-user-context</artifactId></dependency>
-        <!-- JSON Schema 校验 -->
+        <!-- JSON Schema 校验 (3.x 支持 Jackson 3) -->
         <dependency>
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
-            <version>1.5.6</version>
+            <version>3.0.4</version>
         </dependency>
     </dependencies>
 </project>

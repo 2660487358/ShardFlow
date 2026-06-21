@@ -7,6 +7,7 @@ Implements real CRUD operations against Java peripheral service APIs:
 - User profiles: /api/v1/profile/*
 """
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +17,21 @@ from app.config import settings
 from app.models.memory import MemoryRecord, MemoryQuery, MemoryType
 
 logger = logging.getLogger(__name__)
+
+
+def _to_camel_case(name: str) -> str:
+    """Convert a snake_case string to camelCase."""
+    components = name.split("_")
+    return components[0] + "".join(x.title() for x in components[1:])
+
+
+def _convert_keys_to_camel(obj: Any) -> Any:
+    """Recursively convert all dict keys from snake_case to camelCase."""
+    if isinstance(obj, dict):
+        return {_to_camel_case(k): _convert_keys_to_camel(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_keys_to_camel(item) for item in obj]
+    return obj
 
 
 class JavaAPIAdapter:
@@ -101,28 +117,29 @@ class JavaAPIAdapter:
             headers = {"X-User-Id": user_id}
 
             if memory_type == MemoryType.SESSION_SUMMARY:
-                body = {"user_id": user_id, "task_id": key, **data}
+                body = _convert_keys_to_camel({"user_id": user_id, "task_id": key, **data})
                 resp = await client.post(
                     "/api/v1/session-summary",
                     json=body,
                     headers=headers,
                 )
             elif memory_type == MemoryType.SEMANTIC and key == "__profile__":
-                body = {"user_id": user_id, **data}
+                body = _convert_keys_to_camel({"user_id": user_id, **data})
                 resp = await client.put(
                     f"/api/v1/profile/{user_id}",
                     json=body,
                     headers=headers,
                 )
             elif memory_type in (MemoryType.SEMANTIC, MemoryType.EPISODIC):
-                body = {
+                body = _convert_keys_to_camel({
                     "user_id": user_id,
                     "memory_type": memory_type.value,
+                    "category": data.get("category", "general"),
                     "content": {"text": data.get("text", ""), "structured": data.get("structured", {})},
                     "confidence": data.get("confidence", 1.0),
                     "source": data.get("source", "conversation"),
                     "session_id": data.get("session_id", ""),
-                }
+                })
                 resp = await client.post(
                     "/api/v1/memory",
                     json=body,
@@ -181,7 +198,7 @@ class JavaAPIAdapter:
             headers = {"X-User-Id": user_id}
 
             if memory_type in (MemoryType.SEMANTIC, MemoryType.EPISODIC):
-                body = {
+                body = _convert_keys_to_camel({
                     "user_id": user_id,
                     "query": query.key_prefix or "",
                     "search_type": "structured",
@@ -190,7 +207,7 @@ class JavaAPIAdapter:
                         "memory_type": [memory_type.value],
                         "min_confidence": 0.5,
                     },
-                }
+                })
                 resp = await client.post(
                     "/api/v1/memory/search",
                     json=body,

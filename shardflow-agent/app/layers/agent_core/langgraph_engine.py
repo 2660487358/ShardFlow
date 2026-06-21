@@ -329,12 +329,21 @@ def _extract_json_block(text: str) -> dict[str, Any] | None:
     if not json_str:
         # 3) Try to find balanced JSON object with final_answer key
         json_str = _find_balanced_json(text, "final_answer")
-    if not json_str:
-        return None
-    try:
-        return json.loads(json_str)
-    except (json.JSONDecodeError, IndexError):
-        return None
+    if json_str:
+        try:
+            return json.loads(json_str)
+        except (json.JSONDecodeError, IndexError):
+            pass
+
+    # 4) Final fallback: if no structured format found, treat entire text as final answer
+    #    Strip any THINKING/ANSWER tag remnants and use the remaining content
+    clean_text = re.sub(r'</?THINKING\s*>', '', text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'</?ANSWER\s*>', '', clean_text, flags=re.IGNORECASE)
+    clean_text = clean_text.strip()
+    if clean_text:
+        return {"final_answer": clean_text, "is_done": True}
+
+    return None
 
 
 def _extract_answer_tag_content(text: str) -> str | None:
@@ -541,6 +550,18 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
                 if "action_plan" in parsed:
                     state["action_plan"] = parsed["action_plan"]
                     state["is_done"] = False
+                    # FIX-2: 工具调用意图写入 WorkingMemory (FR-WM-001)
+                    _session_id = state.get("session_id", "")
+                    if _session_id and parsed.get("action_plan"):
+                        try:
+                            from app.layers.agent_core.working_memory_manager import working_memory_manager
+                            action_desc = json.dumps(parsed["action_plan"], ensure_ascii=False)[:500]
+                            working_memory_manager.add_message(
+                                _session_id, "assistant", action_desc,
+                                metadata={"type": "action_plan"},
+                            )
+                        except Exception as _wm_err:
+                            logger.warning("FIX-2: add_message(action_plan) failed: %s", _wm_err)
                     return state
                 elif "final_answer" in parsed:
                     # Apply post-processing pipeline to final answer
@@ -549,6 +570,18 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
                     state["final_answer"] = processed
                     state["is_done"] = True
                     state["action_plan"] = {}
+                    # FIX-2: 助手回复写入 WorkingMemory (FR-WM-001)
+                    _session_id = state.get("session_id", "")
+                    if _session_id and processed:
+                        try:
+                            from app.layers.agent_core.working_memory_manager import working_memory_manager
+                            working_memory_manager.add_message(_session_id, "assistant", processed)
+                            # FIX-5: 助手回复写入后持久化到 L1 (FR-WM-002)
+                            _wm = working_memory_manager.get_session(_session_id)
+                            if _wm:
+                                await working_memory_manager._persist_to_l1(_wm)
+                        except Exception as _wm_err:
+                            logger.warning("FIX-2: add_message(final_answer) failed: %s", _wm_err)
                     # If answer was not streamed in real-time, fall back to replay
                     if not state.get("_answer_streamed") and stream_queue is not None:
                         from app.layers.security.output_guard import output_guard
@@ -571,6 +604,17 @@ async def node_llm_think(state: dict[str, Any]) -> dict[str, Any]:
             state["final_answer"] = processed
             state["is_done"] = True
             state["action_plan"] = {}
+            # FIX-2: 回退路径的助手回复写入 WorkingMemory (FR-WM-001)
+            _session_id = state.get("session_id", "")
+            if _session_id and processed:
+                try:
+                    from app.layers.agent_core.working_memory_manager import working_memory_manager
+                    working_memory_manager.add_message(_session_id, "assistant", processed)
+                    _wm = working_memory_manager.get_session(_session_id)
+                    if _wm:
+                        await working_memory_manager._persist_to_l1(_wm)
+                except Exception as _wm_err:
+                    logger.warning("FIX-2: add_message(fallback) failed: %s", _wm_err)
             # Also stream via queue for the realtime answer mode
             if not state.get("_answer_streamed") and stream_queue is not None:
                 from app.layers.security.output_guard import output_guard
@@ -705,6 +749,26 @@ async def node_observe(state: dict[str, Any]) -> dict[str, Any]:
     from app.layers.agent_core.llm_router import llm_router
     from app.layers.agent_core.prompt_engine import prompt_engine
     from app.layers.reasoning.decision_reasoning import confidence_scorer
+
+    # FIX-4: 工具调用结果写入 WorkingMemory (FR-WM-001)
+    _session_id = state.get("session_id", "")
+    if _session_id:
+        try:
+            from app.layers.agent_core.working_memory_manager import working_memory_manager
+            _action_plan = state.get("action_plan") or {}
+            _tool_name = _action_plan.get("tool", "unknown")
+            _tool_result = state.get("observation", "")
+            if _tool_result:
+                working_memory_manager.add_message(
+                    _session_id, "tool", str(_tool_result)[:1000],
+                    metadata={"tool_name": _tool_name},
+                )
+                # FIX-5: 工具结果写入后持久化到 L1
+                _wm = working_memory_manager.get_session(_session_id)
+                if _wm:
+                    await working_memory_manager._persist_to_l1(_wm)
+        except Exception as _wm_err:
+            logger.warning("FIX-4: add_message(tool) failed: %s", _wm_err)
 
     prompt = prompt_engine.build_observe_prompt(state)
     model_id = state.get("model_id", llm_router.select_model("observe"))

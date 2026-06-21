@@ -1,6 +1,5 @@
 package com.shardflow.kb.service;
 
-import io.milvus.client.MilvusServiceClient;
 import io.milvus.param.R;
 import io.milvus.param.dml.QueryParam;
 import io.milvus.grpc.QueryResults;
@@ -11,6 +10,12 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Milvus 查询服务（只读，C-4.16）。
+ * <p>
+ * 所有查询通过 {@link MilvusReadOnlyClient#query(QueryParam)} 执行，
+ * 禁止通过 getClient() 获取原始客户端进行写操作。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -35,7 +40,7 @@ public class MilvusQueryService {
         try {
             String collectionName = userCollectionName(userId);
             String expr = String.format("kb_id == \"%s\" && status == \"%s\"", kbId, STATUS_ACTIVE);
-            R<QueryResults> resp = milvusClient.getClient().query(
+            R<QueryResults> resp = milvusClient.query(
                 QueryParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withExpr(expr)
@@ -62,7 +67,7 @@ public class MilvusQueryService {
         try {
             String collectionName = userCollectionName(userId);
             String expr = String.format("kb_id == \"%s\" && status == \"%s\"", kbId, STATUS_ACTIVE);
-            R<QueryResults> resp = milvusClient.getClient().query(
+            R<QueryResults> resp = milvusClient.query(
                 QueryParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withExpr(expr)
@@ -108,7 +113,7 @@ public class MilvusQueryService {
     public Set<String> listActiveKbIds(String userId) {
         try {
             String collectionName = userCollectionName(userId);
-            R<QueryResults> resp = milvusClient.getClient().query(
+            R<QueryResults> resp = milvusClient.query(
                 QueryParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withExpr(String.format("status == \"%s\"", STATUS_ACTIVE))

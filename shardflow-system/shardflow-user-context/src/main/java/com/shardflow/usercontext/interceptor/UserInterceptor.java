@@ -8,6 +8,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+/**
+ * 用户上下文拦截器 (C-4.1-01b, C-10.2-01)。
+ * 从请求头提取 userId、tenantId、traceId、requestId 注入 ThreadLocal，
+ * 供 RLS 上下文注入与链路追踪透传使用。
+ */
 @Component
 public class UserInterceptor implements HandlerInterceptor {
 
@@ -18,6 +23,20 @@ public class UserInterceptor implements HandlerInterceptor {
         String userId = request.getHeader("X-User-Id");
         if (userId != null && !userId.isBlank()) {
             UserContext.setUserId(userId);
+        }
+        // C-4.1-01b: 透传 tenant_id
+        String tenantId = request.getHeader("X-Tenant-Id");
+        if (tenantId != null && !tenantId.isBlank()) {
+            UserContext.setTenantId(tenantId);
+        }
+        // C-10.2-01: 透传 trace_id / request_id
+        String traceId = request.getHeader("X-Trace-ID");
+        if (traceId != null && !traceId.isBlank()) {
+            UserContext.setTraceId(traceId);
+        }
+        String requestId = request.getHeader("X-Request-ID");
+        if (requestId != null && !requestId.isBlank()) {
+            UserContext.setRequestId(requestId);
         }
         return true;
     }

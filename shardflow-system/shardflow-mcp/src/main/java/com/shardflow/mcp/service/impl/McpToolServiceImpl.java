@@ -2,9 +2,9 @@ package com.shardflow.mcp.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.common.config.McpRedisConstants;
 import com.shardflow.common.dto.mcp.*;
 import com.shardflow.common.entity.McpToolEntity;
@@ -547,7 +547,7 @@ public class McpToolServiceImpl implements McpToolService {
         try {
             String json = objectMapper.writeValueAsString(authConfig);
             return AesEncryptionUtil.encrypt(json);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("Failed to serialize auth_config", e);
         }
     }
@@ -555,7 +555,7 @@ public class McpToolServiceImpl implements McpToolService {
     private String toJsonString(Object obj) {
         try {
             return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("Failed to serialize object", e);
         }
     }
@@ -668,7 +668,7 @@ public class McpToolServiceImpl implements McpToolService {
         if (json == null || json.isBlank()) return null;
         try {
             return objectMapper.readValue(json, new TypeReference<List<String>>() {});
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to parse JSON list: {}", json);
             return null;
         }
@@ -678,7 +678,7 @@ public class McpToolServiceImpl implements McpToolService {
         if (json == null || json.isBlank()) return null;
         try {
             return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to parse JSON map: {}", json);
             return null;
         }
@@ -703,7 +703,7 @@ public class McpToolServiceImpl implements McpToolService {
             String json = objectMapper.writeValueAsString(response);
             redisTemplate.opsForValue().set(key, json,
                 Duration.ofSeconds(McpRedisConstants.TOOLS_LIST_TTL_SECONDS));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to cache tool list", e);
         }
     }
@@ -725,7 +725,7 @@ public class McpToolServiceImpl implements McpToolService {
             String json = objectMapper.writeValueAsString(response);
             redisTemplate.opsForValue().set(key, json,
                 Duration.ofSeconds(McpRedisConstants.TOOL_DETAIL_TTL_SECONDS));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to cache tool detail", e);
         }
     }
@@ -747,7 +747,7 @@ public class McpToolServiceImpl implements McpToolService {
             String json = objectMapper.writeValueAsString(response);
             redisTemplate.opsForValue().set(key, json,
                 Duration.ofSeconds(McpRedisConstants.TOOLS_DISCOVER_TTL_SECONDS));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to cache tool discover", e);
         }
     }

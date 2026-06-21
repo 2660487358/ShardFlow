@@ -66,4 +66,24 @@ public class AuditServiceImpl implements AuditService {
         log.info("Cleaned up {} audit logs older than {} days", deleted, retentionDays);
         return deleted;
     }
+
+    /**
+     * 记录审计日志（C-4.9-01）。
+     * <p>
+     * 同步写入 PG，失败时仅记录日志不抛异常，避免影响主业务流程（审计为非阻塞操作）。
+     */
+    @Override
+    @Transactional
+    public AuditLogEntity recordAudit(AuditLogEntity entity) {
+        try {
+            auditLogRepository.insert(entity);
+            log.debug("Audit log recorded: user={}, op={}, resource={}/{}",
+                    entity.getUserId(), entity.getOperationType(),
+                    entity.getResourceType(), entity.getResourceId());
+        } catch (Exception e) {
+            log.error("Failed to record audit log: user={}, op={}, error={}",
+                    entity.getUserId(), entity.getOperationType(), e.getMessage());
+        }
+        return entity;
+    }
 }
