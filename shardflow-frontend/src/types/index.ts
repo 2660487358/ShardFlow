@@ -140,6 +140,7 @@ export interface AvailableModel {
 
 export interface AgentConfig {
   id: string;
+  agent_code?: string;
   user_id: string;
   model_id: string;
   name: string;
@@ -148,8 +149,137 @@ export interface AgentConfig {
   temperature: number;
   max_tokens: number;
   tools: string[];
+  skills?: AgentSkillBinding[];
   created_at: string;
   updated_at: string;
+}
+
+// ── Skill Types (P2/P4) ──
+
+export interface SkillCostEstimate {
+  avg_input_tokens: number;
+  avg_output_tokens: number;
+  avg_latency_ms: number;
+}
+
+export interface Skill {
+  id: number;
+  skill_code: string;
+  skill_name: string;
+  description: string;
+  skill_type: 'prompt' | 'tool' | 'hybrid' | 'workflow';
+  trust_tier: 'official' | 'team' | 'personal';
+  category: string;
+  current_version: string;
+  status: 'draft' | 'reviewing' | 'published' | 'deprecated' | 'archived';
+  source: 'CUSTOM' | 'IMPORTED' | 'BUILTIN';
+  trigger_keywords: string[];
+  input_schema: Record<string, unknown> | null;
+  output_schema: Record<string, unknown> | null;
+  cost_estimate: SkillCostEstimate | null;
+  tags: string[];
+  owner_id: number;
+  user_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SkillDetailAgentRef {
+  id: number;
+  name: string;
+  agent_code: string;
+  binding_type: 'required' | 'optional';
+  priority: number;
+}
+
+export interface SkillDetailVersionRef {
+  version_tag: string;
+  status: 'draft' | 'staging' | 'production' | 'rolled_back';
+  change_log: string;
+  promoted_by: number | null;
+  promoted_at: string | null;
+}
+
+export interface SkillDetail extends Skill {
+  agents: SkillDetailAgentRef[];
+  versions: SkillDetailVersionRef[];
+}
+
+export interface SkillVersion {
+  id: number;
+  skill_id: number;
+  version_tag: string;
+  content_hash: string;
+  artifact_path: string;
+  change_log: string;
+  promoted_by: number | null;
+  promoted_at: string | null;
+  status: 'draft' | 'staging' | 'production' | 'rolled_back';
+  created_at: string;
+}
+
+export interface AgentSkillBinding {
+  id?: number;
+  agent_id?: number;
+  skill_id: number;
+  bound_version: string;
+  binding_type: 'required' | 'optional';
+  priority: number;
+  config_override: Record<string, unknown> | null;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SkillPermission {
+  id?: number;
+  skill_id: number;
+  subject_type: 'user' | 'role' | 'team';
+  subject_id: number;
+  permission_mask: number;
+}
+
+export interface SkillAuditLog {
+  id: number;
+  skill_id: number;
+  agent_id: number | null;
+  operation: string;
+  operator_id: number;
+  operator_type: 'user' | 'system' | 'api';
+  request_id: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface SkillImportResult {
+  created: number;
+  skipped: number;
+  failed: number;
+  details: Array<{
+    name: string;
+    status: 'created' | 'skipped' | 'failed';
+    reason?: string;
+    skill_code?: string;
+  }>;
+}
+
+export interface SkillQueryParams {
+  keyword?: string;
+  category?: string;
+  status?: string;
+  trust_tier?: string;
+  skill_type?: string;
+  page?: number;
+  size?: number;
+}
+
+export interface SkillListResult {
+  skills: Skill[];
+  total: number;
+  page: number;
+  size: number;
 }
 
 // ── Knowledge Base Types ──

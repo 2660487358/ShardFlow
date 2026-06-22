@@ -211,6 +211,13 @@ export async function sendConversation(
     return;
   }
 
+  // P4: 从当前激活 Agent 获取已启用的 skill_ids
+  const state = useStore.getState();
+  const activeAgent = state.agentConfigs.find((a) => a.id === state.activeAgentId);
+  const skillIds = (activeAgent?.skills || [])
+    .filter((s) => s.enabled)
+    .map((s) => s.skill_id);
+
   const response = await fetch(`${API_BASE}/conversation`, {
     method: 'POST',
     headers: {
@@ -224,11 +231,12 @@ export async function sendConversation(
       user_id: userId,
       model,
       stream: true,
-      kb_collection_name: useStore.getState().kbActiveMount.mounted
-        ? `kb_chunks_${useStore.getState().userId}`
+      skill_ids: skillIds,
+      kb_collection_name: state.kbActiveMount.mounted
+        ? `kb_chunks_${state.userId}`
         : '',
-      kb_id: useStore.getState().kbActiveMount.mounted
-        ? useStore.getState().kbActiveMount.collectionId || ''
+      kb_id: state.kbActiveMount.mounted
+        ? state.kbActiveMount.collectionId || ''
         : '',
     }),
     signal,
@@ -696,4 +704,120 @@ export async function updateAgentConfigApi(id: string, payload: Record<string, u
 
 export async function deleteAgentConfigApi(id: string): Promise<void> {
   await systemApi.delete(`/agents/${id}`);
+}
+
+// ---- Skill API (P2/P4) ----
+
+import type {
+  Skill, SkillDetail, SkillVersion, AgentSkillBinding, SkillPermission,
+  SkillAuditLog, SkillImportResult, SkillQueryParams, SkillListResult,
+  SkillDetailAgentRef,
+} from '@/types';
+
+export async function fetchSkills(params?: SkillQueryParams): Promise<SkillListResult> {
+  const { data } = await systemApi.get('/skills', { params });
+  return data.data || data;
+}
+
+export async function fetchSkillDetail(skillCode: string): Promise<SkillDetail> {
+  const { data } = await systemApi.get(`/skills/${skillCode}`);
+  return data.data || data;
+}
+
+export async function createSkill(payload: Record<string, unknown>): Promise<Skill> {
+  const { data } = await systemApi.post('/skills', payload);
+  return data.data || data;
+}
+
+export async function updateSkill(skillCode: string, payload: Record<string, unknown>): Promise<Skill> {
+  const { data } = await systemApi.put(`/skills/${skillCode}`, payload);
+  return data.data || data;
+}
+
+export async function deleteSkill(skillCode: string): Promise<void> {
+  await systemApi.delete(`/skills/${skillCode}`);
+}
+
+export async function toggleSkillStatus(skillCode: string, status: string): Promise<Skill> {
+  const { data } = await systemApi.patch(`/skills/${skillCode}/status`, { status });
+  return data.data || data;
+}
+
+export async function fetchSkillCategories(): Promise<string[]> {
+  const { data } = await systemApi.get('/skills/categories');
+  const inner = data.data || data;
+  return Array.isArray(inner) ? inner : [];
+}
+
+export async function publishSkillVersion(
+  skillCode: string,
+  versionTag: string,
+  changeLog: string,
+  promotionType: string = 'staging',
+): Promise<SkillVersion> {
+  const { data } = await systemApi.post(`/skills/${skillCode}/versions/${versionTag}/publish`, {
+    change_log: changeLog,
+    promotion_type: promotionType,
+  });
+  return data.data || data;
+}
+
+export async function fetchSkillVersions(skillCode: string): Promise<SkillVersion[]> {
+  const { data } = await systemApi.get(`/skills/${skillCode}/versions`);
+  const inner = data.data || data;
+  return Array.isArray(inner) ? inner : [];
+}
+
+export async function rollbackSkillVersion(skillCode: string, versionTag: string): Promise<SkillVersion> {
+  const { data } = await systemApi.post(`/skills/${skillCode}/versions/${versionTag}/rollback`);
+  return data.data || data;
+}
+
+export async function importSkills(file: File): Promise<SkillImportResult> {
+  const token = await getValidToken();
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await axios.create({
+    baseURL: SYSTEM_BASE,
+    headers: { Authorization: `Bearer ${token}` },
+  }).post('/skills/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.data || data;
+}
+
+export async function exportSkills(ids: number[]): Promise<Blob> {
+  const { data } = await systemApi.get('/skills/export', {
+    params: { ids: ids.join(',') },
+    responseType: 'blob',
+  });
+  return data;
+}
+
+export async function updateAgentSkills(agentId: string, bindings: AgentSkillBinding[]): Promise<void> {
+  await systemApi.post(`/agents/${agentId}/skills`, { bindings });
+}
+
+export async function fetchSkillAgents(skillCode: string): Promise<SkillDetailAgentRef[]> {
+  const { data } = await systemApi.get(`/skills/${skillCode}/agents`);
+  const inner = data.data || data;
+  return Array.isArray(inner) ? inner : [];
+}
+
+export async function updateSkillPermission(skillCode: string, permission: SkillPermission): Promise<void> {
+  await systemApi.post(`/skills/${skillCode}/permissions`, permission);
+}
+
+export async function fetchSkillPermissions(skillCode: string): Promise<SkillPermission[]> {
+  const { data } = await systemApi.get(`/skills/${skillCode}/permissions`);
+  const inner = data.data || data;
+  return Array.isArray(inner) ? inner : [];
+}
+
+export async function fetchSkillAuditLogs(
+  skillCode: string,
+  params?: { page?: number; size?: number },
+): Promise<{ logs: SkillAuditLog[]; total: number; page: number; size: number }> {
+  const { data } = await systemApi.get(`/skills/${skillCode}/audit-logs`, { params });
+  return data.data || data;
 }

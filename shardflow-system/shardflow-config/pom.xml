@@ -23,5 +23,12 @@
             <groupId>com.shardflow</groupId>
             <artifactId>shardflow-user-context</artifactId>
         </dependency>
+        <!-- MinIO：Skill Artifact 对象存储（DR-6）。
+             MinioClient Bean 由 shardflow-kb 的 MinioConfig 在运行时提供，
+             shardflow-app 同时引入 kb 与 config，复用同一 Bean 避免冲突。 -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+        </dependency>
     </dependencies>
 </project>

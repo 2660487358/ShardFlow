@@ -8,6 +8,7 @@ import HistoryPage from './pages/HistoryPage';
 import McpToolsPage from './pages/McpToolsPage';
 import McpAuditPage from './pages/McpAuditPage';
 import SkillMarketPage from './pages/SkillMarketPage';
+import SkillDetailPage from './pages/SkillDetailPage';
 import ModelsPage from './pages/ModelsPage';
 import AgentsPage from './pages/AgentsPage';
 import TaskPage from './pages/TaskPage';
@@ -106,6 +107,7 @@ export default function App() {
             <Route path="mcp-tools" element={<McpToolsPage />} />
             <Route path="mcp-audit" element={<McpAuditPage />} />
             <Route path="skills" element={<SkillMarketPage />} />
+            <Route path="skills/:skillCode" element={<SkillDetailPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="agents" element={<AgentsPage />} />
             <Route path="kb" element={<KnowledgePage />} />

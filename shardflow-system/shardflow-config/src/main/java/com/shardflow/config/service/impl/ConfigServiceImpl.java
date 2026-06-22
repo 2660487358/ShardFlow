@@ -10,6 +10,7 @@ import com.shardflow.config.repository.AgentConfigRepository;
 import com.shardflow.config.repository.BuiltinModelRepository;
 import com.shardflow.config.repository.CustomModelRepository;
 import com.shardflow.config.repository.ModelAuditLogRepository;
+import com.shardflow.config.service.AgentSkillBindingService;
 import com.shardflow.config.service.ConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class ConfigServiceImpl implements ConfigService {
     private final AgentConfigRepository agentConfigRepository;
     private final BuiltinModelRepository builtinModelRepository;
     private final ModelAuditLogRepository modelAuditLogRepository;
+    private final AgentSkillBindingService bindingService;
 
     // ── Startup Initialization ──
     // Builtin model seed data is handled by schema.sql (ON CONFLICT ... DO NOTHING),
@@ -200,7 +202,10 @@ public class ConfigServiceImpl implements ConfigService {
     }
 
     @Override
+    @Transactional
     public boolean deleteAgent(String id) {
+        // P4.1.7: Agent 删除时级联解绑 Skill
+        bindingService.deleteByAgentId(id);
         try {
             long numericId = Long.parseLong(id);
             return agentConfigRepository.deleteById(numericId) > 0;

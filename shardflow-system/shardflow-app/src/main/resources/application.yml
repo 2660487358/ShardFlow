@@ -68,6 +68,8 @@ shardflow:
     access-key: ${SF_MINIO_ACCESS_KEY:minioadmin}
     secret-key: ${SF_MINIO_SECRET_KEY:minioadmin}
     bucket: ${SF_MINIO_BUCKET:shardflow-kb}
+    # Skills 管理 Artifact 存储 Bucket（DR-6）
+    skill-bucket: ${SF_MINIO_SKILL_BUCKET:shardflow-skills}
   grpc:
     python-host: ${SF_GRPC_PYTHON_HOST:localhost}
     python-port: ${SF_GRPC_PYTHON_PORT:50051}

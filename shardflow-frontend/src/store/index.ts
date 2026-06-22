@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, Task, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult, StreamingPhase, UserProfile } from '@/types';
+import type { ChatMessage, Task, AgentConfig, CustomModel, KbCollection, KbMountState, KbSearchResult, StreamingPhase, UserProfile, Skill, SkillDetail, SkillQueryParams, AgentSkillBinding } from '@/types';
 
 // Lazy API imports to avoid circular deps (client.ts imports useStore)
 const api = {
@@ -11,7 +11,17 @@ const api = {
   addAgent: (p: Record<string, unknown>) => import('@/api/client').then(m => m.addAgentConfigApi(p)),
   updateAgent: (id: string, p: Record<string, unknown>) => import('@/api/client').then(m => m.updateAgentConfigApi(id, p)),
   deleteAgent: (id: string) => import('@/api/client').then(m => m.deleteAgentConfigApi(id)),
+  updateAgentSkills: (agentId: string, bindings: AgentSkillBinding[]) => import('@/api/client').then(m => m.updateAgentSkills(agentId, bindings)),
   fetchProfile: (userId: string) => import('@/api/client').then(m => m.fetchProfile(userId)),
+  // Skill APIs
+  fetchSkills: (p?: SkillQueryParams) => import('@/api/client').then(m => m.fetchSkills(p)),
+  createSkill: (p: Record<string, unknown>) => import('@/api/client').then(m => m.createSkill(p)),
+  updateSkill: (code: string, p: Record<string, unknown>) => import('@/api/client').then(m => m.updateSkill(code, p)),
+  deleteSkill: (code: string) => import('@/api/client').then(m => m.deleteSkill(code)),
+  toggleSkillStatus: (code: string, status: string) => import('@/api/client').then(m => m.toggleSkillStatus(code, status)),
+  fetchSkillDetail: (code: string) => import('@/api/client').then(m => m.fetchSkillDetail(code)),
+  fetchSkillCategories: () => import('@/api/client').then(m => m.fetchSkillCategories()),
+  importSkills: (file: File) => import('@/api/client').then(m => m.importSkills(file)),
 };
 
 // T4.1: Tab 级存储工具 —— 优先使用 sessionStorage（Tab 隔离），
@@ -133,12 +143,34 @@ interface AppState {
   // Agent Configs
   agentConfigs: AgentConfig[];
   activeAgentId: string | null;
-  addAgent: (agent: Omit<AgentConfig, 'id' | 'created_at' | 'updated_at'>) => void;
+  addAgent: (agent: Omit<AgentConfig, 'id' | 'created_at' | 'updated_at'>) => Promise<AgentConfig>;
   removeAgent: (id: string) => void;
-  updateAgent: (id: string, updates: Partial<Omit<AgentConfig, 'id' | 'created_at' | 'updated_at'>>) => void;
+  updateAgent: (id: string, updates: Partial<Omit<AgentConfig, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
+  updateAgentSkills: (agentId: string, bindings: AgentSkillBinding[]) => Promise<void>;
   setActiveAgent: (id: string | null) => void;
   setAgentConfigs: (configs: AgentConfig[]) => void;
   syncAgentConfigs: () => Promise<void>;
+
+  // Skills (P2/P4)
+  skills: Skill[];
+  skillTotal: number;
+  skillLoading: boolean;
+  skillDetail: SkillDetail | null;
+  skillDetailLoading: boolean;
+  skillCategories: string[];
+  setSkills: (skills: Skill[]) => void;
+  setSkillTotal: (total: number) => void;
+  setSkillLoading: (v: boolean) => void;
+  setSkillDetail: (detail: SkillDetail | null) => void;
+  setSkillDetailLoading: (v: boolean) => void;
+  setSkillCategories: (categories: string[]) => void;
+  addSkill: (skill: Omit<Skill, 'id' | 'skill_code' | 'created_at' | 'updated_at'>) => void;
+  removeSkill: (skillCode: string) => void;
+  updateSkillInStore: (skillCode: string, updates: Partial<Skill>) => void;
+  toggleSkillStatusInStore: (skillCode: string, status: string) => void;
+  syncSkills: (params?: SkillQueryParams) => Promise<void>;
+  syncSkillDetail: (skillCode: string) => Promise<void>;
+  syncSkillCategories: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -426,25 +458,64 @@ export const useStore = create<AppState>((set) => ({
   },
 
   // Agent Configs
-  agentConfigs: JSON.parse(localStorage.getItem('shardflow_agents') || '[]'),
+  agentConfigs: (() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('shardflow_agents') || '[]');
+      // P4: localStorage 旧数据迁移，确保每个 Agent 都有 skills 数组
+      return (Array.isArray(raw) ? raw : []).map((a: AgentConfig) => ({
+        ...a,
+        skills: Array.isArray(a.skills) ? a.skills : [],
+      }));
+    } catch {
+      return [];
+    }
+  })(),
   activeAgentId: localStorage.getItem('shardflow_active_agent') || null,
   addAgent: (agent) => {
-    const now = new Date().toISOString();
-    const newAgent: AgentConfig = { ...agent, id: `agent-${Date.now()}`, created_at: now, updated_at: now };
-    // Optimistic update
-    set((s) => {
-      const updated = [...s.agentConfigs, newAgent];
-      localStorage.setItem('shardflow_agents', JSON.stringify(updated));
-      return { agentConfigs: updated };
-    });
-    api.addAgent(newAgent as unknown as Record<string, unknown>).catch((err: Error) => {
+    return new Promise<AgentConfig>((resolve, reject) => {
+      const now = new Date().toISOString();
+      const tempId = `agent-${Date.now()}`;
+      const newAgent: AgentConfig = {
+        ...agent,
+        id: tempId,
+        skills: agent.skills || [],
+        created_at: now,
+        updated_at: now,
+      };
+      // Optimistic update
       set((s) => {
-        const rolled = s.agentConfigs.filter((a) => a.id !== newAgent.id);
-        localStorage.setItem('shardflow_agents', JSON.stringify(rolled));
-        return { agentConfigs: rolled };
+        const updated = [...s.agentConfigs, newAgent];
+        localStorage.setItem('shardflow_agents', JSON.stringify(updated));
+        return { agentConfigs: updated };
       });
-      import('antd').then(({ message }) => {
-        message.error(`Agent 保存失败: ${err?.message || '请检查后端服务是否可用'}`);
+      api.addAgent(newAgent as unknown as Record<string, unknown>).then((resp: unknown) => {
+        const serverAgent = resp as Record<string, unknown> | null;
+        if (serverAgent && serverAgent.id != null) {
+          const merged: AgentConfig = {
+            ...newAgent,
+            id: String(serverAgent.id),
+            agent_code: serverAgent.agent_code as string | undefined,
+            ...serverAgent,
+          } as AgentConfig;
+          set((s) => {
+            const updated = s.agentConfigs.map((a) => (a.id === tempId ? merged : a));
+            localStorage.setItem('shardflow_agents', JSON.stringify(updated));
+            return { agentConfigs: updated };
+          });
+          resolve(merged);
+        } else {
+          resolve(newAgent);
+        }
+      }).catch((err: Error) => {
+        set((s) => {
+          const rolled = s.agentConfigs.filter((a) => a.id !== tempId);
+          localStorage.setItem('shardflow_agents', JSON.stringify(rolled));
+          return { agentConfigs: rolled };
+        });
+        import('antd').then(({ message }) => {
+          message.error(`Agent 保存失败: ${err?.message || '请检查后端服务是否可用'}`);
+        });
+        reject(err);
       });
     });
   },
@@ -475,23 +546,38 @@ export const useStore = create<AppState>((set) => ({
     });
   },
   updateAgent: (id, updates) => {
-    const prev = useStore.getState().agentConfigs.find((a) => a.id === id);
+    return new Promise<void>((resolve, reject) => {
+      const prev = useStore.getState().agentConfigs.find((a) => a.id === id);
+      set((s) => {
+        const updated = s.agentConfigs.map((a) => a.id === id ? { ...a, ...updates, updated_at: new Date().toISOString() } : a);
+        localStorage.setItem('shardflow_agents', JSON.stringify(updated));
+        return { agentConfigs: updated };
+      });
+      api.updateAgent(id, updates as Record<string, unknown>).then(() => {
+        resolve();
+      }).catch((err: Error) => {
+        if (prev) {
+          set((s) => {
+            const rolled = s.agentConfigs.map((a) => a.id === id ? prev : a);
+            localStorage.setItem('shardflow_agents', JSON.stringify(rolled));
+            return { agentConfigs: rolled };
+          });
+        }
+        import('antd').then(({ message }) => {
+          message.error(`Agent 更新失败: ${err?.message || '请检查后端服务是否可用'}`);
+        });
+        reject(err);
+      });
+    });
+  },
+  updateAgentSkills: async (agentId, bindings) => {
+    await api.updateAgentSkills(agentId, bindings);
     set((s) => {
-      const updated = s.agentConfigs.map((a) => a.id === id ? { ...a, ...updates, updated_at: new Date().toISOString() } : a);
+      const updated = s.agentConfigs.map((a) =>
+        (a.id === agentId || a.agent_code === agentId) ? { ...a, skills: bindings, updated_at: new Date().toISOString() } : a
+      );
       localStorage.setItem('shardflow_agents', JSON.stringify(updated));
       return { agentConfigs: updated };
-    });
-    api.updateAgent(id, updates as Record<string, unknown>).catch((err: Error) => {
-      if (prev) {
-        set((s) => {
-          const rolled = s.agentConfigs.map((a) => a.id === id ? prev : a);
-          localStorage.setItem('shardflow_agents', JSON.stringify(rolled));
-          return { agentConfigs: rolled };
-        });
-      }
-      import('antd').then(({ message }) => {
-        message.error(`Agent 更新失败: ${err?.message || '请检查后端服务是否可用'}`);
-      });
     });
   },
   setActiveAgent: (id) => {
@@ -504,9 +590,127 @@ export const useStore = create<AppState>((set) => ({
     try {
       const data = await api.fetchAgents();
       if (Array.isArray(data)) {
-        set({ agentConfigs: data as AgentConfig[] });
-        localStorage.setItem('shardflow_agents', JSON.stringify(data));
+        const migrated = (data as AgentConfig[]).map((a) => ({
+          ...a,
+          skills: Array.isArray(a.skills) ? a.skills : [],
+        }));
+        set({ agentConfigs: migrated });
+        localStorage.setItem('shardflow_agents', JSON.stringify(migrated));
       }
     } catch { /* API unavailable, keep localStorage data */ }
+  },
+
+  // Skills (P2/P4)
+  skills: [],
+  skillTotal: 0,
+  skillLoading: false,
+  skillDetail: null,
+  skillDetailLoading: false,
+  skillCategories: [],
+  setSkills: (skills) => set({ skills }),
+  setSkillTotal: (skillTotal) => set({ skillTotal }),
+  setSkillLoading: (v) => set({ skillLoading: v }),
+  setSkillDetail: (detail) => set({ skillDetail: detail }),
+  setSkillDetailLoading: (v) => set({ skillDetailLoading: v }),
+  setSkillCategories: (categories) => set({ skillCategories: categories }),
+  addSkill: (skill) => {
+    // Optimistic update: 先添加到列表，API 调用成功后替换为服务端数据
+    set((s) => ({ skills: [skill as Skill, ...s.skills] }));
+    api.createSkill(skill as unknown as Record<string, unknown>).then((resp) => {
+      set((s) => ({
+        skills: s.skills.map((item) =>
+          item.skill_code === (skill as unknown as Record<string, string>).skill_code ? (resp as Skill) : item
+        ),
+      }));
+      import('antd').then(({ message }) => { message.success('Skill 创建成功'); });
+    }).catch((err: Error) => {
+      set((s) => ({
+        skills: s.skills.filter((item) =>
+          item.skill_code !== (skill as unknown as Record<string, string>).skill_code
+        ),
+      }));
+      import('antd').then(({ message }) => {
+        message.error(`Skill 创建失败: ${err?.message || '请检查后端服务是否可用'}`);
+      });
+    });
+  },
+  removeSkill: (skillCode) => {
+    const removed = useStore.getState().skills.find((s) => s.skill_code === skillCode);
+    set((s) => ({ skills: s.skills.filter((item) => item.skill_code !== skillCode) }));
+    api.deleteSkill(skillCode).then(() => {
+      import('antd').then(({ message }) => { message.success('Skill 删除成功'); });
+    }).catch((err: Error) => {
+      if (removed) {
+        set((s) => ({ skills: [...s.skills, removed] }));
+      }
+      import('antd').then(({ message }) => {
+        message.error(`Skill 删除失败: ${err?.message || '请检查后端服务是否可用'}`);
+      });
+    });
+  },
+  updateSkillInStore: (skillCode, updates) => {
+    const prev = useStore.getState().skills.find((s) => s.skill_code === skillCode);
+    set((s) => ({
+      skills: s.skills.map((item) => item.skill_code === skillCode ? { ...item, ...updates } : item),
+    }));
+    api.updateSkill(skillCode, updates as unknown as Record<string, unknown>).then((resp) => {
+      set((s) => ({
+        skills: s.skills.map((item) => item.skill_code === skillCode ? (resp as Skill) : item),
+      }));
+      import('antd').then(({ message }) => { message.success('Skill 更新成功'); });
+    }).catch((err: Error) => {
+      if (prev) {
+        set((s) => ({
+          skills: s.skills.map((item) => item.skill_code === skillCode ? prev : item),
+        }));
+      }
+      import('antd').then(({ message }) => {
+        message.error(`Skill 更新失败: ${err?.message || '请检查后端服务是否可用'}`);
+      });
+    });
+  },
+  toggleSkillStatusInStore: (skillCode, status) => {
+    const prev = useStore.getState().skills.find((s) => s.skill_code === skillCode);
+    set((s) => ({
+      skills: s.skills.map((item) => item.skill_code === skillCode ? { ...item, status: status as Skill['status'] } : item),
+    }));
+    api.toggleSkillStatus(skillCode, status).then((resp) => {
+      set((s) => ({
+        skills: s.skills.map((item) => item.skill_code === skillCode ? (resp as Skill) : item),
+      }));
+    }).catch((err: Error) => {
+      if (prev) {
+        set((s) => ({
+          skills: s.skills.map((item) => item.skill_code === skillCode ? prev : item),
+        }));
+      }
+      import('antd').then(({ message }) => {
+        message.error(`状态切换失败: ${err?.message || '请检查后端服务是否可用'}`);
+      });
+    });
+  },
+  syncSkills: async (params) => {
+    set({ skillLoading: true });
+    try {
+      const result = await api.fetchSkills(params);
+      set({ skills: result.skills || [], skillTotal: result.total || 0, skillLoading: false });
+    } catch {
+      set({ skillLoading: false });
+    }
+  },
+  syncSkillDetail: async (skillCode) => {
+    set({ skillDetailLoading: true });
+    try {
+      const detail = await api.fetchSkillDetail(skillCode);
+      set({ skillDetail: detail, skillDetailLoading: false });
+    } catch {
+      set({ skillDetail: null, skillDetailLoading: false });
+    }
+  },
+  syncSkillCategories: async () => {
+    try {
+      const categories = await api.fetchSkillCategories();
+      set({ skillCategories: categories });
+    } catch { /* ignore */ }
   },
 }));
