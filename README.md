@@ -99,7 +99,7 @@ ShardFlow/
 │   ├── docker-compose.yml     # 开发环境
 │   ├── docker-compose.agent.yml
 │   └── docker-compose.prod.yml
-└── SDD/                       # 项目文档
+└── docs/                       # 项目文档
     ├── spec/                  # 产品规格与需求
     ├── design/                # 架构设计
     ├── development/           # 开发规范
