@@ -169,7 +169,6 @@ export interface Skill {
   description: string;
   skill_type: 'prompt' | 'tool' | 'hybrid' | 'workflow';
   trust_tier: 'official' | 'team' | 'personal';
-  category: string;
   current_version: string;
   status: 'draft' | 'reviewing' | 'published' | 'deprecated' | 'archived';
   source: 'CUSTOM' | 'IMPORTED' | 'BUILTIN';
@@ -257,20 +256,21 @@ export interface SkillImportResult {
   created: number;
   skipped: number;
   failed: number;
+  artifactsUploaded?: number;
+  versionCreated?: string;
   details: Array<{
     name: string;
     status: 'created' | 'skipped' | 'failed';
     reason?: string;
     skill_code?: string;
+    artifacts?: string[];
+    version?: string;
   }>;
 }
 
 export interface SkillQueryParams {
   keyword?: string;
-  category?: string;
   status?: string;
-  trust_tier?: string;
-  skill_type?: string;
   page?: number;
   size?: number;
 }

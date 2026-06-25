@@ -743,12 +743,6 @@ export async function toggleSkillStatus(skillCode: string, status: string): Prom
   return data.data || data;
 }
 
-export async function fetchSkillCategories(): Promise<string[]> {
-  const { data } = await systemApi.get('/skills/categories');
-  const inner = data.data || data;
-  return Array.isArray(inner) ? inner : [];
-}
-
 export async function publishSkillVersion(
   skillCode: string,
   versionTag: string,

@@ -18,6 +18,8 @@ import com.shardflow.config.service.SkillVersionService;
 import com.shardflow.config.support.SkillPermissionChecker;
 import com.shardflow.config.support.SkillVersionStateMachine;
 import com.shardflow.usercontext.context.UserContext;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -33,6 +35,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -59,6 +62,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
     private final SkillArtifactStorageService artifactStorageService;
     private final SkillCacheEvictor cacheEvictor;
     private final SkillPermissionChecker permissionChecker;
+    private final ObjectMapper objectMapper;
 
     // ======================== P3.1.1 版本发布 ========================
 
@@ -135,7 +139,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         }
 
         recordAuditLog(skill.getId(), "VERSION_PUBLISH",
-            "Published version " + versionTag + " to " + targetStatus);
+            Map.of("action", "version_publish", "version", versionTag, "target_status", targetStatus));
 
         cacheEvictor.evictOnVersionPublish(userId, skillCode);
 
@@ -215,7 +219,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         skillRegistryRepo.updateById(skill);
 
         recordAuditLog(skill.getId(), "VERSION_ROLLBACK",
-            "Rolled back to version " + versionTag + " as new version " + newVersionTag);
+            Map.of("action", "version_rollback", "from_version", versionTag, "new_version", newVersionTag));
 
         cacheEvictor.evictOnVersionPublish(userId, skillCode);
 
@@ -298,7 +302,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             skillArtifactRepo.insert(artifact);
 
             recordAuditLog(skill.getId(), "ARTIFACT_UPLOAD",
-                "Uploaded artifact " + fileName + " for version " + versionTag);
+                Map.of("action", "artifact_upload", "file_name", fileName, "version", versionTag));
 
             log.info("Uploaded skill artifact: skillCode={}, version={}, file={}, userId={}",
                 skillCode, versionTag, fileName, userId);
@@ -342,7 +346,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
      */
     private void validateArtifactFile(MultipartFile file) {
         if (file.getSize() > MAX_ARTIFACT_SIZE_BYTES) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(413),
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
                 "Artifact file too large, max 10MB");
         }
         String fileName = file.getOriginalFilename();
@@ -473,7 +477,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         return dto;
     }
 
-    private void recordAuditLog(Long skillId, String operation, String details) {
+    private void recordAuditLog(Long skillId, String operation, Map<String, Object> details) {
         try {
             SkillAuditLogEntity auditLog = new SkillAuditLogEntity();
             auditLog.setSkillId(skillId);
@@ -481,8 +485,11 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             auditLog.setOperatorId(UserContext.getUserId());
             auditLog.setOperatorType("user");
             auditLog.setRequestId(UserContext.getRequestId());
-            auditLog.setDetails(details);
+            auditLog.setDetails(objectMapper.writeValueAsString(details));
             skillAuditLogRepo.insert(auditLog);
+        } catch (JacksonException e) {
+            log.error("Failed to serialize audit log details to JSON: skillId={}, operation={}, error={}",
+                skillId, operation, e.getMessage());
         } catch (Exception e) {
             log.error("Failed to record skill audit log: skillId={}, operation={}, error={}",
                 skillId, operation, e.getMessage());

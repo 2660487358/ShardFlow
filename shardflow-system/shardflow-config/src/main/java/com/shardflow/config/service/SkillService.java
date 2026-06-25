@@ -7,7 +7,6 @@ import com.shardflow.config.dto.SkillStatusRequest;
 import com.shardflow.config.dto.UpdateSkillRequest;
 import com.shardflow.config.dto.SkillQueryRequest;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -72,12 +71,4 @@ public interface SkillService {
      * @return 更新后的 Skill DTO
      */
     SkillDTO changeStatus(String skillCode, SkillStatusRequest request);
-
-    /**
-     * 查询分类列表.
-     * FR-4.8 / P2.3.1: GET /api/v1/skills/categories
-     *
-     * @return 去重排序的分类列表
-     */
-    List<String> listCategories();
 }

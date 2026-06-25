@@ -16,8 +16,9 @@ spring:
       mode: never
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 20MB
+      # P3.8: Skill 压缩包导入支持 50MB（含 .zip / .tar.gz）
+      max-file-size: 50MB
+      max-request-size: 50MB
 
   data:
     redis:

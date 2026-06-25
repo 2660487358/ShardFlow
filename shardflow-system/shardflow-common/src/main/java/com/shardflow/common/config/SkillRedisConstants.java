@@ -100,13 +100,4 @@ public final class SkillRedisConstants {
     public static String skillListKey(String userId) {
         return String.format(SKILL_LIST_KEY, userId);
     }
-
-    /**
-     * 构建分类列表缓存 Key.
-     * @param userId 用户ID
-     * @return shardflow:{userId}:skill:categories
-     */
-    public static String skillCategoriesKey(String userId) {
-        return String.format(SKILL_CATEGORIES_KEY, userId);
-    }
 }

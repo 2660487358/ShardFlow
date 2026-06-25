@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Skill 准入服务.
@@ -71,7 +72,8 @@ public class SkillAdmissionService {
                 skillCode,
                 "ADMISSION_SCAN",
                 userId,
-                "scan_passed=" + result.passed() + ", issues=" + result.issues().size(),
+                Map.of("action", "admission_scan", "scan_passed", result.passed(),
+                        "issues_count", result.issues().size()),
                 0,
                 0,
                 result.passed(),
@@ -135,7 +137,8 @@ public class SkillAdmissionService {
                 skillCode,
                 "ADMISSION_REVIEW",
                 userId,
-                "approved=" + approved + ", comment=" + comment,
+                Map.of("action", "admission_review", "approved", approved,
+                        "comment", comment != null ? comment : ""),
                 0,
                 0,
                 true,
@@ -166,8 +169,8 @@ public class SkillAdmissionService {
                 skillCode,
                 "SANDBOX_TEST",
                 userId,
-                "passed=" + result.passed() + ", cpu_ms=" + result.cpuMs()
-                        + ", memory_kb=" + result.memoryKb(),
+                Map.of("action", "sandbox_test", "passed", result.passed(),
+                        "cpu_ms", result.cpuMs(), "memory_kb", result.memoryKb()),
                 result.cpuMs(),
                 0,
                 result.passed(),

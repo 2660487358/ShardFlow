@@ -80,7 +80,6 @@ public class SkillExportService {
         map.put("description", entity.getDescription());
         map.put("skill_type", entity.getSkillType());
         map.put("trust_tier", entity.getTrustTier());
-        map.put("category", entity.getCategory());
         map.put("status", entity.getStatus());
         map.put("current_version", entity.getCurrentVersion());
         map.put("source", entity.getSource());

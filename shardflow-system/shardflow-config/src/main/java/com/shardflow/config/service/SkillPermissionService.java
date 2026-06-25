@@ -18,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -75,7 +76,7 @@ public class SkillPermissionService {
         );
 
         String operation;
-        String details;
+        Map<String, Object> details;
         SkillPermissionEntity entity;
 
         if (existing != null) {
@@ -85,9 +86,13 @@ public class SkillPermissionService {
             skillPermissionRepository.updateById(existing);
             entity = existing;
             operation = "PERMISSION_UPDATE";
-            details = String.format("subject=%s:%s, mask %d->%d",
-                    request.getSubjectType(), request.getSubjectId(),
-                    oldMask, request.getPermissionMask());
+            details = Map.of(
+                    "action", "permission_update",
+                    "subject_type", request.getSubjectType(),
+                    "subject_id", request.getSubjectId(),
+                    "old_mask", oldMask,
+                    "new_mask", request.getPermissionMask()
+            );
             log.info("SkillPermissionService: updated permission skill={} subject={}:{} mask={}",
                     skillCode, request.getSubjectType(), request.getSubjectId(), request.getPermissionMask());
         } else {
@@ -100,8 +105,12 @@ public class SkillPermissionService {
             entity.setCreatedAt(Instant.now());
             skillPermissionRepository.insert(entity);
             operation = "PERMISSION_GRANT";
-            details = String.format("subject=%s:%s, mask=%d",
-                    request.getSubjectType(), request.getSubjectId(), request.getPermissionMask());
+            details = Map.of(
+                    "action", "permission_grant",
+                    "subject_type", request.getSubjectType(),
+                    "subject_id", request.getSubjectId(),
+                    "mask", request.getPermissionMask()
+            );
             log.info("SkillPermissionService: granted permission skill={} subject={}:{} mask={}",
                     skillCode, request.getSubjectType(), request.getSubjectId(), request.getPermissionMask());
         }
@@ -190,8 +199,12 @@ public class SkillPermissionService {
                 skillCode,
                 "PERMISSION_REVOKE",
                 userId,
-                String.format("subject=%s:%s, mask=%d",
-                        subjectType, subjectId, existing.getPermissionMask()),
+                Map.of(
+                        "action", "permission_revoke",
+                        "subject_type", subjectType,
+                        "subject_id", subjectId,
+                        "mask", existing.getPermissionMask()
+                ),
                 0,
                 0,
                 true,

@@ -34,7 +34,6 @@ class SkillMeta:
     cost_estimate: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
-    category: str = ""
     source: str = "CUSTOM"  # CUSTOM | IMPORTED | BUILTIN
     # 绑定信息（来自 agent_skill_binding）
     binding_type: str = "optional"  # required | optional
@@ -53,7 +52,6 @@ class SkillMeta:
             "skill_name": self.skill_name,
             "description": self.description,
             "skill_type": self.skill_type,
-            "category": self.category,
             "trigger_keywords": self.trigger_keywords,
             "tags": self.tags,
             "binding_type": self.binding_type,

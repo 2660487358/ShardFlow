@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import {
-  Button, Card, Tag, List, Typography, Skeleton, message,
+  Button, Card, Tag, Typography, message,
   Modal, Form, Input, Space, Popconfirm, Upload, Empty, Spin,
-  Select, Pagination, Row, Col,
+  Select, Pagination, Row, Col, Tooltip,
 } from 'antd';
 import {
   ThunderboltOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   UploadOutlined, SearchOutlined, PauseCircleOutlined, PlayCircleOutlined,
-  EyeOutlined,
 } from '@ant-design/icons';
 import { useStore } from '@/store';
 import type { Skill, SkillQueryParams } from '@/types';
@@ -48,15 +47,14 @@ interface SkillFormValues {
   description: string;
   skill_type: string;
   trust_tier: string;
-  category: string;
   trigger_keywords?: string;
 }
 
 export default function SkillMarketPage() {
   const { onLoginRequired, isAuthenticated } = useOutletContext<OutletContext>();
   const {
-    skills, skillTotal, skillLoading, skillCategories,
-    syncSkills, syncSkillCategories, addSkill, removeSkill,
+    skills, skillTotal, skillLoading,
+    syncSkills, addSkill, removeSkill,
     updateSkillInStore, toggleSkillStatusInStore,
   } = useStore();
 
@@ -64,14 +62,12 @@ export default function SkillMarketPage() {
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   // 查询条件
   const [query, setQuery] = useState<SkillQueryParams>({
     keyword: '',
-    category: undefined,
     status: undefined,
-    trust_tier: undefined,
-    skill_type: undefined,
     page: 1,
     size: 12,
   });
@@ -80,11 +76,6 @@ export default function SkillMarketPage() {
     if (!isAuthenticated) return;
     await syncSkills(query);
   }, [isAuthenticated, query, syncSkills]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    syncSkillCategories();
-  }, [isAuthenticated, syncSkillCategories]);
 
   useEffect(() => {
     fetchData();
@@ -115,7 +106,6 @@ export default function SkillMarketPage() {
       description: skill.description,
       skill_type: skill.skill_type,
       trust_tier: skill.trust_tier,
-      category: skill.category,
       trigger_keywords: skill.trigger_keywords?.join(', ') || '',
     });
     setModalOpen(true);
@@ -130,7 +120,6 @@ export default function SkillMarketPage() {
       description: values.description,
       skill_type: values.skill_type,
       trust_tier: values.trust_tier,
-      category: values.category,
       trigger_keywords: triggerKeywords,
       input_schema: {},
       output_schema: {},
@@ -167,19 +156,26 @@ export default function SkillMarketPage() {
     toggleSkillStatusInStore(skill.skill_code, nextStatus);
   };
 
-  const beforeUpload = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const { importSkills } = await import('@/api/client');
-        const result = await importSkills(file);
-        message.success(`导入完成：创建 ${result.created}，跳过 ${result.skipped}，失败 ${result.failed}`);
-        fetchData();
-      } catch (err: unknown) {
-        message.error(`导入失败: ${err instanceof Error ? err.message : '请检查文件格式'}`);
+  const beforeUpload = async (file: File) => {
+    setImporting(true);
+    try {
+      const { importSkills } = await import('@/api/client');
+      const result = await importSkills(file);
+      const parts: string[] = [`创建 ${result.created}`, `跳过 ${result.skipped}`, `失败 ${result.failed}`];
+      if (result.artifactsUploaded && result.artifactsUploaded > 0) {
+        parts.push(`Artifact ${result.artifactsUploaded}`);
       }
-    };
-    reader.readAsText(file);
+      if (result.versionCreated) {
+        parts.push(`版本 ${result.versionCreated}`);
+      }
+      message.success(`导入完成：${parts.join('，')}`);
+      fetchData();
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '请检查文件格式';
+      message.error(`导入失败: ${errMsg}`);
+    } finally {
+      setImporting(false);
+    }
     return false;
   };
 
@@ -214,14 +210,28 @@ export default function SkillMarketPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
             <Title level={3} style={{ margin: 0, color: 'var(--ink)', letterSpacing: '0.05em' }}>Skills</Title>
-            <Text type="secondary" style={{ fontSize: 13 }}>管理你的 Skills，支持新建、编辑、删除、导入和多条件筛选</Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>管理你的 Skills，支持新建、编辑、删除和导入</Text>
           </div>
           <Space>
-            <Upload beforeUpload={beforeUpload} showUploadList={false} accept=".json">
-              <Button icon={<UploadOutlined />} className="cn-sans">
-                导入 Skill
-              </Button>
-            </Upload>
+            <Tooltip
+              title={
+                <div style={{ fontSize: 12 }}>
+                  <div>支持格式：.json / .zip / .tar.gz / .tgz</div>
+                  <div style={{ marginTop: 4 }}>压缩包可包含：</div>
+                  <div>• skill.json（元数据）</div>
+                  <div>• prompt.md / tool.py / workflow.yaml</div>
+                  <div>• manifest.json（清单，可选）</div>
+                  <div style={{ marginTop: 4 }}>也支持仅含 SKILL.md 的极简包</div>
+                </div>
+              }
+              placement="bottomRight"
+            >
+              <Upload beforeUpload={beforeUpload} showUploadList={false} accept=".json,.zip,.tar.gz,.tgz" disabled={importing}>
+                <Button icon={<UploadOutlined />} className="cn-sans" loading={importing}>
+                  导入 Skill
+                </Button>
+              </Upload>
+            </Tooltip>
             <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal} className="cn-sans">
               新建 Skill
             </Button>
@@ -230,7 +240,7 @@ export default function SkillMarketPage() {
 
         {/* 筛选栏 */}
         <Row gutter={[12, 12]} style={{ marginBottom: 24 }} align="middle">
-          <Col xs={24} sm={12} md={8} lg={5}>
+          <Col xs={24} sm={12} md={8} lg={8}>
             <Input
               prefix={<SearchOutlined style={{ color: 'var(--ink-faint)' }} />}
               placeholder="搜索名称或描述..."
@@ -240,20 +250,7 @@ export default function SkillMarketPage() {
               allowClear
             />
           </Col>
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Select
-              placeholder="分类"
-              allowClear
-              style={{ width: '100%' }}
-              value={query.category}
-              onChange={(v) => setQuery((prev) => ({ ...prev, category: v, page: 1 }))}
-            >
-              {skillCategories.map((c) => (
-                <Option key={c} value={c}>{c}</Option>
-              ))}
-            </Select>
-          </Col>
-          <Col xs={12} sm={6} md={4} lg={3}>
+          <Col xs={12} sm={6} md={4} lg={4}>
             <Select
               placeholder="状态"
               allowClear
@@ -263,32 +260,6 @@ export default function SkillMarketPage() {
             >
               {STATUSES.map((s) => (
                 <Option key={s.value} value={s.value}>{s.label}</Option>
-              ))}
-            </Select>
-          </Col>
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Select
-              placeholder="信任等级"
-              allowClear
-              style={{ width: '100%' }}
-              value={query.trust_tier}
-              onChange={(v) => setQuery((prev) => ({ ...prev, trust_tier: v, page: 1 }))}
-            >
-              {TRUST_TIERS.map((t) => (
-                <Option key={t.value} value={t.value}>{t.label}</Option>
-              ))}
-            </Select>
-          </Col>
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Select
-              placeholder="执行模式"
-              allowClear
-              style={{ width: '100%' }}
-              value={query.skill_type}
-              onChange={(v) => setQuery((prev) => ({ ...prev, skill_type: v, page: 1 }))}
-            >
-              {SKILL_TYPES.map((t) => (
-                <Option key={t.value} value={t.value}>{t.label}</Option>
               ))}
             </Select>
           </Col>
@@ -364,7 +335,6 @@ export default function SkillMarketPage() {
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                           <Tag color="default" style={{ fontSize: 11 }}>{skill.skill_type}</Tag>
                           <Tag color="default" style={{ fontSize: 11 }}>{skill.trust_tier}</Tag>
-                          {skill.category && <Tag color="default" style={{ fontSize: 11 }}>{skill.category}</Tag>}
                         </div>
                         <div style={{ display: 'flex', gap: 16 }}>
                           <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
@@ -453,9 +423,6 @@ export default function SkillMarketPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="category" label="分类">
-            <Input placeholder="例如：code_analysis" />
-          </Form.Item>
           <Form.Item name="trigger_keywords" label="触发关键词">
             <Input placeholder="用逗号分隔，例如：代码, 审查, review" />
           </Form.Item>

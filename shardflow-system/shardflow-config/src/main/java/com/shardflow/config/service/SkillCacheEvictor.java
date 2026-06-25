@@ -69,18 +69,6 @@ public class SkillCacheEvictor {
     }
 
     /**
-     * 失效分类列表缓存.
-     */
-    public void evictCategories(String userId) {
-        try {
-            redisTemplate.delete(SkillRedisConstants.skillCategoriesKey(userId));
-            log.debug("Evicted skill categories cache: userId={}", userId);
-        } catch (Exception e) {
-            log.warn("Failed to evict skill categories cache (userId={}): {}", userId, e.getMessage());
-        }
-    }
-
-    /**
      * Skill 变更（创建/更新/删除/状态切换）时失效相关缓存.
      * 失效范围：meta + list。
      */

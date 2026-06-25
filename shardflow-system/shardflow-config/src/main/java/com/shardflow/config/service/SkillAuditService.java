@@ -1,6 +1,8 @@
 package com.shardflow.config.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.shardflow.config.entity.SkillAuditLogEntity;
 import com.shardflow.config.repository.SkillAuditLogRepository;
 import com.shardflow.usercontext.context.UserContext;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Skill 审计日志服务.
@@ -34,6 +37,7 @@ import java.util.List;
 public class SkillAuditService {
 
     private final SkillAuditLogRepository auditLogRepository;
+    private final ObjectMapper objectMapper;
 
     /**
      * 记录审计日志（异步）.
@@ -42,7 +46,7 @@ public class SkillAuditService {
      * @param skillCode  Skill 编码
      * @param operation  操作类型
      * @param operatorId 操作者ID
-     * @param details    操作详情
+     * @param details    操作详情（Map，将被序列化为 JSON 写入 JSONB 列）
      * @param latencyMs  调用延迟（毫秒）
      * @param tokensUsed Token 消耗
      * @param success    是否成功
@@ -54,7 +58,7 @@ public class SkillAuditService {
             String skillCode,
             String operation,
             String operatorId,
-            String details,
+            Map<String, Object> details,
             int latencyMs,
             int tokensUsed,
             boolean success,
@@ -66,7 +70,7 @@ public class SkillAuditService {
             entity.setOperation(operation);
             entity.setOperatorId(operatorId != null ? operatorId : "system");
             entity.setOperatorType("user");
-            entity.setDetails(details);
+            entity.setDetails(objectMapper.writeValueAsString(details));
             entity.setLatencyMs(latencyMs);
             entity.setTokensUsed(tokensUsed);
             entity.setSuccess(success);
@@ -76,6 +80,9 @@ public class SkillAuditService {
             auditLogRepository.insert(entity);
             log.debug("SkillAuditService: recorded skill={} operation={} success={}",
                     skillCode, operation, success);
+        } catch (JacksonException e) {
+            log.warn("SkillAuditService: failed to serialize audit details to JSON skill={} operation={} error={}",
+                    skillCode, operation, e.getMessage());
         } catch (Exception e) {
             log.warn("SkillAuditService: failed to record audit log skill={} operation={} error={}",
                     skillCode, operation, e.getMessage());
@@ -93,7 +100,7 @@ public class SkillAuditService {
             String sessionId,
             String operation,
             String operatorId,
-            String details,
+            Map<String, Object> details,
             int latencyMs,
             int tokensUsed,
             boolean success,
@@ -107,7 +114,7 @@ public class SkillAuditService {
             entity.setOperation(operation);
             entity.setOperatorId(operatorId != null ? operatorId : "system");
             entity.setOperatorType("user");
-            entity.setDetails(details);
+            entity.setDetails(objectMapper.writeValueAsString(details));
             entity.setLatencyMs(latencyMs);
             entity.setTokensUsed(tokensUsed);
             entity.setSuccess(success);
@@ -115,6 +122,9 @@ public class SkillAuditService {
             entity.setCreatedAt(Instant.now());
 
             auditLogRepository.insert(entity);
+        } catch (JacksonException e) {
+            log.warn("SkillAuditService: failed to serialize execution audit details to JSON skill={} error={}",
+                    skillCode, e.getMessage());
         } catch (Exception e) {
             log.warn("SkillAuditService: failed to record execution audit skill={} error={}",
                     skillCode, e.getMessage());

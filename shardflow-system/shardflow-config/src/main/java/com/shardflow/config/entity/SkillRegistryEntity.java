@@ -93,10 +93,6 @@ public class SkillRegistryEntity {
     @TableField("tags")
     private String tags;
 
-    /** 技能分类 */
-    @TableField("category")
-    private String category = "";
-
     /** 来源：CUSTOM | IMPORTED | BUILTIN */
     @TableField("source")
     private String source = "CUSTOM";

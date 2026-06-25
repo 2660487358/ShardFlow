@@ -102,7 +102,6 @@ public class SkillEntityConverter {
         entity.setDescription(request.getDescription());
         entity.setSkillType(request.getSkillType() != null ? request.getSkillType() : "prompt");
         entity.setTrustTier(request.getTrustTier() != null ? request.getTrustTier() : "personal");
-        entity.setCategory(request.getCategory() != null ? request.getCategory() : "");
         entity.setSource("CUSTOM");
         entity.setStatus("draft");
         entity.setOwnerId(userId);
@@ -131,7 +130,6 @@ public class SkillEntityConverter {
         if (request.getDescription() != null) entity.setDescription(request.getDescription());
         if (request.getSkillType() != null) entity.setSkillType(request.getSkillType());
         if (request.getTrustTier() != null) entity.setTrustTier(request.getTrustTier());
-        if (request.getCategory() != null) entity.setCategory(request.getCategory());
         // JSONB 字段选择性更新
         if (request.getTriggerKeywords() != null) {
             entity.setTriggerKeywords(toJsonString(request.getTriggerKeywords()));
@@ -183,7 +181,6 @@ public class SkillEntityConverter {
         dto.setDescription(entity.getDescription());
         dto.setSkillType(entity.getSkillType());
         dto.setTrustTier(entity.getTrustTier());
-        dto.setCategory(entity.getCategory());
         dto.setCurrentVersion(entity.getCurrentVersion());
         dto.setStatus(entity.getStatus());
         dto.setSource(entity.getSource());

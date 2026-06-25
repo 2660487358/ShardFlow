@@ -20,7 +20,6 @@ const api = {
   deleteSkill: (code: string) => import('@/api/client').then(m => m.deleteSkill(code)),
   toggleSkillStatus: (code: string, status: string) => import('@/api/client').then(m => m.toggleSkillStatus(code, status)),
   fetchSkillDetail: (code: string) => import('@/api/client').then(m => m.fetchSkillDetail(code)),
-  fetchSkillCategories: () => import('@/api/client').then(m => m.fetchSkillCategories()),
   importSkills: (file: File) => import('@/api/client').then(m => m.importSkills(file)),
 };
 
@@ -157,20 +156,17 @@ interface AppState {
   skillLoading: boolean;
   skillDetail: SkillDetail | null;
   skillDetailLoading: boolean;
-  skillCategories: string[];
   setSkills: (skills: Skill[]) => void;
   setSkillTotal: (total: number) => void;
   setSkillLoading: (v: boolean) => void;
   setSkillDetail: (detail: SkillDetail | null) => void;
   setSkillDetailLoading: (v: boolean) => void;
-  setSkillCategories: (categories: string[]) => void;
   addSkill: (skill: Omit<Skill, 'id' | 'skill_code' | 'created_at' | 'updated_at'>) => void;
   removeSkill: (skillCode: string) => void;
   updateSkillInStore: (skillCode: string, updates: Partial<Skill>) => void;
   toggleSkillStatusInStore: (skillCode: string, status: string) => void;
   syncSkills: (params?: SkillQueryParams) => Promise<void>;
   syncSkillDetail: (skillCode: string) => Promise<void>;
-  syncSkillCategories: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -606,13 +602,11 @@ export const useStore = create<AppState>((set) => ({
   skillLoading: false,
   skillDetail: null,
   skillDetailLoading: false,
-  skillCategories: [],
   setSkills: (skills) => set({ skills }),
   setSkillTotal: (skillTotal) => set({ skillTotal }),
   setSkillLoading: (v) => set({ skillLoading: v }),
   setSkillDetail: (detail) => set({ skillDetail: detail }),
   setSkillDetailLoading: (v) => set({ skillDetailLoading: v }),
-  setSkillCategories: (categories) => set({ skillCategories: categories }),
   addSkill: (skill) => {
     // Optimistic update: 先添加到列表，API 调用成功后替换为服务端数据
     set((s) => ({ skills: [skill as Skill, ...s.skills] }));
@@ -706,11 +700,5 @@ export const useStore = create<AppState>((set) => ({
     } catch {
       set({ skillDetail: null, skillDetailLoading: false });
     }
-  },
-  syncSkillCategories: async () => {
-    try {
-      const categories = await api.fetchSkillCategories();
-      set({ skillCategories: categories });
-    } catch { /* ignore */ }
   },
 }));

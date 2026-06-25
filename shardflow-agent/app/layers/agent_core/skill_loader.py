@@ -209,7 +209,6 @@ class SkillLoader:
             cost_estimate=_parse_json_field(skill_data.get("cost_estimate"), {}),
             config=_parse_json_field(skill_data.get("config"), {}),
             tags=_parse_json_field(skill_data.get("tags"), []),
-            category=skill_data.get("category", ""),
             source=skill_data.get("source", "CUSTOM"),
             binding_type=item.get("binding_type", "optional"),
             priority=int(item.get("priority", 0)),

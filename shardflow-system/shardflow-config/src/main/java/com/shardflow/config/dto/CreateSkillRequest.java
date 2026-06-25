@@ -39,8 +39,6 @@ public class CreateSkillRequest {
     @JsonProperty("trust_tier")
     private String trustTier = "personal";
 
-    private String category;
-
     @JsonProperty("trigger_keywords")
     private List<String> triggerKeywords;
 

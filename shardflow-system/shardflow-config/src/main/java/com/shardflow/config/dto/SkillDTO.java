@@ -35,8 +35,6 @@ public class SkillDTO {
     @JsonProperty("trust_tier")
     private String trustTier;
 
-    private String category;
-
     @JsonProperty("current_version")
     private String currentVersion;
 

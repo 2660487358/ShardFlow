@@ -30,5 +30,12 @@
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
         </dependency>
+        <!-- Commons Compress：Skill 压缩包导入（.tar.gz / .tgz）支持（P3.1）。
+             ZIP 使用 JDK 内置 java.util.zip，TAR.GZ 需 commons-compress。 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.26.1</version>
+        </dependency>
     </dependencies>
 </project>

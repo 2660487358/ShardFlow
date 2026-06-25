@@ -255,7 +255,6 @@ export default function SkillDetailPage() {
             <Descriptions.Item label="当前版本">{detail.current_version || '-'}</Descriptions.Item>
             <Descriptions.Item label="执行模式">{detail.skill_type}</Descriptions.Item>
             <Descriptions.Item label="信任等级">{detail.trust_tier}</Descriptions.Item>
-            <Descriptions.Item label="分类">{detail.category || '-'}</Descriptions.Item>
             <Descriptions.Item label="来源">{detail.source}</Descriptions.Item>
             <Descriptions.Item label="触发关键词" span={2}>
               {detail.trigger_keywords?.length ? detail.trigger_keywords.map((k) => <Tag key={k}>{k}</Tag>) : '-'}

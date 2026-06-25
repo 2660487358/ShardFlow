@@ -1,5 +1,8 @@
 package com.shardflow.common.util;
 
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -16,6 +19,8 @@ import java.util.regex.Pattern;
  * </ul>
  */
 public final class DataMasker {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("1[3-9]\\d{9}");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("([a-zA-Z0-9._%+-])[^@]*@([a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
@@ -47,22 +52,66 @@ public final class DataMasker {
 
     /**
      * 对审计日志输入参数进行脱敏 (SEC-DATA-001).
-     * 截断至 1KB 并掩码敏感字段。
+     * 如果输入是合法 JSON，则递归脱敏 JSON 值以保持 JSON 结构完整性；
+     * 否则回退到纯文本脱敏。截断至 1KB。
      */
     public static String maskAuditInput(String input) {
         if (input == null) return null;
-        String masked = maskSensitiveFields(input);
+        String masked = maskJsonAware(input);
         return truncate(masked, 1024);
     }
 
     /**
      * 对审计日志输出预览进行脱敏 (SEC-DATA-001).
-     * 截断至 1KB 并掩码敏感字段。
+     * 如果输入是合法 JSON，则递归脱敏 JSON 值以保持 JSON 结构完整性；
+     * 否则回退到纯文本脱敏。截断至 1KB。
      */
     public static String maskAuditOutput(String output) {
         if (output == null) return null;
-        String masked = maskSensitiveFields(output);
+        String masked = maskJsonAware(output);
         return truncate(masked, 1024);
+    }
+
+    /**
+     * JSON 感知的脱敏方法：尝试解析为 JSON 后递归脱敏值，保持 JSON 结构完整。
+     * 如果解析失败，回退到纯文本脱敏。
+     */
+    private static String maskJsonAware(String input) {
+        try {
+            Object parsed = OBJECT_MAPPER.readValue(input, new TypeReference<Object>() {});
+            Object masked = maskJsonValue(parsed);
+            return OBJECT_MAPPER.writeValueAsString(masked);
+        } catch (Exception e) {
+            // 非 JSON 格式，回退到纯文本脱敏
+            return maskSensitiveFields(input);
+        }
+    }
+
+    /**
+     * 递归脱敏 JSON 值：对字符串值进行敏感字段掩码，对 Map/List 递归处理。
+     */
+    @SuppressWarnings("unchecked")
+    private static Object maskJsonValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof String) {
+            return maskSensitiveFields((String) value);
+        }
+        if (value instanceof Map) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            ((Map<String, Object>) value).forEach((k, v) -> result.put(k, maskJsonValue(v)));
+            return result;
+        }
+        if (value instanceof Iterable) {
+            java.util.List<Object> result = new java.util.ArrayList<>();
+            for (Object item : (Iterable<?>) value) {
+                result.add(maskJsonValue(item));
+            }
+            return result;
+        }
+        // 数字、布尔等非字符串类型直接返回
+        return value;
     }
 
     /**

@@ -30,8 +30,6 @@ public class SkillImportRequest {
     @JsonProperty("trust_tier")
     private String trustTier;
 
-    private String category;
-
     @JsonProperty("trigger_keywords")
     private List<String> triggerKeywords;
 

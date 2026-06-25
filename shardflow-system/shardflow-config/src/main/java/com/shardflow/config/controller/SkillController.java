@@ -37,7 +37,6 @@ import java.util.stream.Collectors;
  *   <li>PUT    /api/v1/skills/{skill_code} — 更新 Skill（P2.2.4）</li>
  *   <li>DELETE /api/v1/skills/{skill_code} — 删除 Skill（P2.2.5）</li>
  *   <li>PATCH  /api/v1/skills/{skill_code}/status — 状态切换（P2.2.6）</li>
- *   <li>GET    /api/v1/skills/categories   — 分类列表（P2.3.1）</li>
  *   <li>GET    /api/v1/skills/{skill_code}/agents — 关联 Agent 查询（P4.1.5）</li>
  * </ul>
  */
@@ -97,13 +96,6 @@ public class SkillController {
             @PathVariable("skill_code") String skillCode,
             @Valid @RequestBody SkillStatusRequest request) {
         return Result.ok(skillService.changeStatus(skillCode, request));
-    }
-
-    // ── P2.3.1 分类列表查询 ──
-
-    @GetMapping("/categories")
-    public Result<List<String>> categories() {
-        return Result.ok(skillService.listCategories());
     }
 
     // ── P3.3.1 Skill 导入 ──

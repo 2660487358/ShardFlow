@@ -13,6 +13,8 @@ import com.shardflow.config.support.SkillEntityConverter;
 import com.shardflow.config.support.SkillPermissionChecker;
 import com.shardflow.config.support.SkillStateMachine;
 import com.shardflow.usercontext.context.UserContext;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -48,6 +50,7 @@ public class SkillServiceImpl implements SkillService {
     private final SkillCodeGenerator codeGenerator;
     private final SkillPermissionChecker permissionChecker;
     private final SkillEntityConverter converter;
+    private final ObjectMapper objectMapper;
 
     // ======================== P2.2.1 创建 Skill ========================
 
@@ -77,11 +80,10 @@ public class SkillServiceImpl implements SkillService {
         }
 
         // 记录审计日志
-        recordAuditLog(entity.getId(), "CREATE", "Created skill: " + entity.getSkillName());
+        recordAuditLog(entity.getId(), "CREATE", Map.of("action", "create", "skill_name", entity.getSkillName()));
 
         // 缓存失效
         cacheEvictor.evictOnSkillChange(userId, skillCode);
-        cacheEvictor.evictCategories(userId);
 
         log.info("Created skill: skillCode={}, userId={}", skillCode, userId);
         return converter.toDTO(entity);
@@ -112,18 +114,9 @@ public class SkillServiceImpl implements SkillService {
             );
         }
 
-        // P2.3.3: 多条件组合筛选
-        if (query.getCategory() != null && !query.getCategory().isBlank()) {
-            wrapper.eq(SkillRegistryEntity::getCategory, query.getCategory());
-        }
+        // P2.3.3: 状态筛选
         if (query.getStatus() != null && !query.getStatus().isBlank()) {
             wrapper.eq(SkillRegistryEntity::getStatus, query.getStatus());
-        }
-        if (query.getTrustTier() != null && !query.getTrustTier().isBlank()) {
-            wrapper.eq(SkillRegistryEntity::getTrustTier, query.getTrustTier());
-        }
-        if (query.getSkillType() != null && !query.getSkillType().isBlank()) {
-            wrapper.eq(SkillRegistryEntity::getSkillType, query.getSkillType());
         }
 
         // P2.3.4: 默认排序 created_at DESC
@@ -217,7 +210,12 @@ public class SkillServiceImpl implements SkillService {
         }
 
         // 记录审计日志
-        recordAuditLog(entity.getId(), "UPDATE", beforeSnapshot + " -> name=" + entity.getSkillName());
+        recordAuditLog(entity.getId(), "UPDATE", Map.of(
+            "action", "update",
+            "before_status", entity.getStatus() != null ? entity.getStatus() : "",
+            "before_name", beforeSnapshot,
+            "after_name", entity.getSkillName()
+        ));
 
         // 缓存失效
         cacheEvictor.evictOnSkillChange(userId, skillCode);
@@ -242,7 +240,6 @@ public class SkillServiceImpl implements SkillService {
         permissionChecker.checkDeletePermission(userId, entity);
 
         Long skillId = entity.getId();
-        String beforeSnapshot = "skillCode=" + entity.getSkillCode() + ", name=" + entity.getSkillName();
 
         // 级联删除（从依赖方到主表）
 
@@ -289,11 +286,14 @@ public class SkillServiceImpl implements SkillService {
         skillRegistryRepo.deleteById(skillId);
 
         // 6. 记录审计日志（追加，不删除）
-        recordAuditLog(skillId, "DELETE", beforeSnapshot);
+        recordAuditLog(skillId, "DELETE", Map.of(
+            "action", "delete",
+            "skill_code", entity.getSkillCode(),
+            "skill_name", entity.getSkillName()
+        ));
 
         // 7. 缓存失效
         cacheEvictor.evictOnSkillChange(userId, skillCode);
-        cacheEvictor.evictCategories(userId);
 
         log.info("Deleted skill: skillCode={}, userId={}", skillCode, userId);
     }
@@ -324,8 +324,11 @@ public class SkillServiceImpl implements SkillService {
         skillRegistryRepo.updateById(entity);
 
         // 记录审计日志
-        recordAuditLog(entity.getId(), "STATUS_CHANGE",
-            "from=" + beforeStatus + " to=" + request.getStatus());
+        recordAuditLog(entity.getId(), "STATUS_CHANGE", Map.of(
+            "action", "status_change",
+            "from", beforeStatus,
+            "to", request.getStatus()
+        ));
 
         // 缓存失效
         cacheEvictor.evictOnSkillChange(userId, skillCode);
@@ -333,31 +336,6 @@ public class SkillServiceImpl implements SkillService {
         log.info("Changed skill status: skillCode={}, {} -> {}, userId={}",
             skillCode, beforeStatus, request.getStatus(), userId);
         return converter.toDTO(entity);
-    }
-
-    // ======================== P2.3.1 分类列表查询 ========================
-
-    @Override
-    public List<String> listCategories() {
-        String userId = UserContext.getUserId();
-
-        // 查询用户可见的 Skill 的分类（去重）
-        List<SkillRegistryEntity> entities = skillRegistryRepo.selectList(
-            new LambdaQueryWrapper<SkillRegistryEntity>()
-                .select(SkillRegistryEntity::getCategory)
-                .and(w -> w
-                    .eq(SkillRegistryEntity::getUserId, userId)
-                    .or()
-                    .eq(SkillRegistryEntity::getTrustTier, "official")
-                )
-        );
-
-        return entities.stream()
-            .map(SkillRegistryEntity::getCategory)
-            .filter(c -> c != null && !c.isBlank())
-            .distinct()
-            .sorted()
-            .collect(Collectors.toList());
     }
 
     // ======================== 内部辅助方法 ========================
@@ -413,9 +391,9 @@ public class SkillServiceImpl implements SkillService {
      *
      * @param skillId   Skill ID
      * @param operation 操作类型: CREATE|UPDATE|DELETE|STATUS_CHANGE
-     * @param details    操作详情
+     * @param details   操作详情（Map，将被序列化为 JSON 写入 JSONB 列）
      */
-    private void recordAuditLog(Long skillId, String operation, String details) {
+    private void recordAuditLog(Long skillId, String operation, Map<String, Object> details) {
         try {
             SkillAuditLogEntity auditLog = new SkillAuditLogEntity();
             auditLog.setSkillId(skillId);
@@ -423,8 +401,11 @@ public class SkillServiceImpl implements SkillService {
             auditLog.setOperatorId(UserContext.getUserId());
             auditLog.setOperatorType("user");
             auditLog.setRequestId(UserContext.getRequestId());
-            auditLog.setDetails(details);
+            auditLog.setDetails(objectMapper.writeValueAsString(details));
             skillAuditLogRepo.insert(auditLog);
+        } catch (JacksonException e) {
+            log.error("Failed to serialize audit log details to JSON: skillId={}, operation={}, error={}",
+                skillId, operation, e.getMessage());
         } catch (Exception e) {
             log.error("Failed to record skill audit log: skillId={}, operation={}, error={}",
                 skillId, operation, e.getMessage());
