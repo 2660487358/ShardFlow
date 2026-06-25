@@ -478,3 +478,65 @@ export interface McpAuditLogResult {
   page: number;
   size: number;
 }
+
+// ── MCP Quick Setup Types (P4) ──
+
+export interface QuickConfigRequest {
+  name: string;
+  displayName?: string;
+  template: string;
+  transport: 'stdio' | 'http-sse' | 'cloud';
+  connection: {
+    url?: string;
+    command?: string;
+    args?: string[];
+    provider?: 'smithery' | 'google-managed';
+    server_key?: string;
+    server_id?: string;
+    autoStart?: boolean; // P6: SSE autoStart 标识
+  };
+  env?: Record<string, string>;
+  timeoutSeconds?: number;
+  retryCount?: number;
+}
+
+export interface McpTemplate {
+  templateId: string;
+  displayName: string;
+  category: string;
+  description: string;
+  iconUrl?: string;
+  transport: 'stdio' | 'http-sse' | 'cloud';
+  defaultEnvVars: string[];
+  envVarDescriptions?: Record<string, string>;
+  authType?: 'none' | 'bearer' | 'oauth2' | 'apikey';
+  tags?: string[];
+  sortOrder?: number;
+}
+
+export interface TemplateListResponse {
+  templates: McpTemplate[];
+  total: number;
+}
+
+export interface TemplateDetailResponse extends McpTemplate {
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  defaultConnection?: {
+    url?: string;
+    command?: string;
+    args?: string[];
+    provider?: string;
+    server_key?: string;
+    server_id?: string;
+  };
+}
+
+export interface QuickConfigResponse {
+  toolId: string;
+  toolName: string;
+  template: string;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  createdAt: string;
+  envMasked?: Record<string, string>;
+}

@@ -1,0 +1,26 @@
+{
+  "_comment": "ShardFlow Skill Artifact 模板 — manifest.json（依赖声明 + 签名 + 构建信息）。Per DR-6 / FR-6.8。上传时替换字段值，删除 _comment 字段。",
+  "manifest_version": "1.0",
+  "skill_code": "SKILL-xxxxxxxx",
+  "version": "1.0.0",
+  "build": {
+    "built_at": "2026-06-21T00:00:00Z",
+    "built_by": "shardflow",
+    "toolchain_version": "1.0.0"
+  },
+  "artifacts": [
+    { "type": "metadata", "file": "skill.json", "required": true },
+    { "type": "prompt", "file": "prompt.md", "required": false },
+    { "type": "tool_handler", "file": "tool.py", "required": false },
+    { "type": "workflow_def", "file": "workflow.yaml", "required": false }
+  ],
+  "dependencies": [
+    { "name": "", "version": "" }
+  ],
+  "integrity": {
+    "content_hash": "",
+    "hash_algorithm": "SHA-256",
+    "signature": "",
+    "signature_algorithm": ""
+  }
+}

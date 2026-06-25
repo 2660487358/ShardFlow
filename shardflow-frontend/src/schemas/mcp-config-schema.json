@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP Quick Configuration Schema",
+  "description": "JSON Schema for MCP Quick Setup configuration",
+  "type": "object",
+  "properties": {
+    "mcpServers": {
+      "type": "object",
+      "description": "MCP server configurations keyed by tool name",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "properties": {
+            "transport": {
+              "type": "string",
+              "enum": ["stdio", "http-sse", "cloud"],
+              "description": "Transport protocol type"
+            },
+            "env": {
+              "type": "object",
+              "description": "Environment variables (sensitive fields should go here)",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "connection": {
+              "type": "object",
+              "description": "Connection configuration",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "Server URL for http-sse transport"
+                },
+                "command": {
+                  "type": "string",
+                  "description": "Command to execute for stdio transport"
+                },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Command arguments for stdio transport"
+                },
+                "provider": {
+                  "type": "string",
+                  "enum": ["smithery", "google-managed"],
+                  "description": "Cloud provider for cloud transport"
+                },
+                "server_key": {
+                  "type": "string",
+                  "description": "Smithery server key"
+                },
+                "server_id": {
+                  "type": "string",
+                  "description": "Google Managed server ID"
+                }
+              }
+            },
+            "timeoutSeconds": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 300,
+              "default": 30,
+              "description": "Request timeout in seconds"
+            },
+            "retryCount": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5,
+              "default": 2,
+              "description": "Number of retries on failure"
+            }
+          },
+          "required": ["transport"]
+        }
+      }
+    }
+  },
+  "required": ["mcpServers"]
+}

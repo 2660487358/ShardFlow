@@ -6,6 +6,7 @@ import ChatPage from './pages/ChatPage';
 import LoginPage from './pages/LoginPage';
 import HistoryPage from './pages/HistoryPage';
 import McpToolsPage from './pages/McpToolsPage';
+import McpQuickSetupPage from './pages/McpQuickSetupPage';
 import McpAuditPage from './pages/McpAuditPage';
 import SkillMarketPage from './pages/SkillMarketPage';
 import SkillDetailPage from './pages/SkillDetailPage';
@@ -105,6 +106,7 @@ export default function App() {
             <Route path="history" element={<HistoryPage />} />
             <Route path="tasks" element={<TaskPage />} />
             <Route path="mcp-tools" element={<McpToolsPage />} />
+            <Route path="mcp-quick-setup" element={<McpQuickSetupPage />} />
             <Route path="mcp-audit" element={<McpAuditPage />} />
             <Route path="skills" element={<SkillMarketPage />} />
             <Route path="skills/:skillCode" element={<SkillDetailPage />} />

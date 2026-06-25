@@ -712,6 +712,7 @@ import type {
   Skill, SkillDetail, SkillVersion, AgentSkillBinding, SkillPermission,
   SkillAuditLog, SkillImportResult, SkillQueryParams, SkillListResult,
   SkillDetailAgentRef,
+  QuickConfigRequest, QuickConfigResponse, TemplateListResponse, TemplateDetailResponse,
 } from '@/types';
 
 export async function fetchSkills(params?: SkillQueryParams): Promise<SkillListResult> {
@@ -813,5 +814,27 @@ export async function fetchSkillAuditLogs(
   params?: { page?: number; size?: number },
 ): Promise<{ logs: SkillAuditLog[]; total: number; page: number; size: number }> {
   const { data } = await systemApi.get(`/skills/${skillCode}/audit-logs`, { params });
+  return data.data || data;
+}
+
+// ── MCP Quick Setup API (P4) ──
+
+export async function quickSetupMcp(request: QuickConfigRequest): Promise<QuickConfigResponse> {
+  const { data } = await systemApi.post('/mcp/quick-setup', request);
+  return data.data || data;
+}
+
+export async function fetchMcpTemplates(params?: { category?: string; keyword?: string }): Promise<TemplateListResponse> {
+  const { data } = await systemApi.get('/mcp/templates', { params });
+  return data.data || data;
+}
+
+export async function fetchMcpTemplateDetail(templateId: string): Promise<TemplateDetailResponse> {
+  const { data } = await systemApi.get(`/mcp/templates/${templateId}`);
+  return data.data || data;
+}
+
+export async function testMcpConnection(name: string, config: QuickConfigRequest): Promise<{ success: boolean; message: string; latencyMs?: number }> {
+  const { data } = await systemApi.post('/mcp/quick-setup/test', { name, config });
   return data.data || data;
 }

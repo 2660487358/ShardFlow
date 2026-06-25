@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import {
   Typography, Table, Button, Input, Select, Tag, Badge, Space,
   Modal, Drawer, Form, InputNumber, Popconfirm, message, Tabs,
@@ -537,6 +537,7 @@ function DetailDrawer({ open, toolId, onClose, onEdit }: DetailDrawerProps) {
 
 export default function McpToolsPage() {
   const { onLoginRequired, isAuthenticated } = useOutletContext<OutletContext>();
+  const navigate = useNavigate();
 
   const [tools, setTools] = useState<McpToolSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -725,9 +726,14 @@ export default function McpToolsPage() {
             <Title level={3} style={{ margin: 0, color: 'var(--ink)', letterSpacing: '0.05em' }}>MCP 工具管理</Title>
             <Text type="secondary" style={{ fontSize: 13 }}>注册、管理和监控 MCP 工具</Text>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
-            注册工具
-          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button onClick={() => navigate('/mcp-quick-setup')}>
+              快速配置
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
+              注册工具
+            </Button>
+          </div>
         </div>
 
         {/* 筛选栏 */}
